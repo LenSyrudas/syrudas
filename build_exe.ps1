@@ -15,7 +15,7 @@ cmd /c ".\.venv\Scripts\python.exe -m pip install --quiet pyinstaller pywebview 
 if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 
 Write-Host "Building exe..."
-cmd /c ".\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name SyrudasAI --icon icon.ico --version-file version_info.txt --add-data ""web/dist;web/dist"" --collect-submodules uvicorn --collect-all webview desktop.py 2>&1"
+cmd /c ".\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name SyrudasAI --icon icon.ico --version-file version_info.txt --add-data ""web/dist;web/dist"" --collect-submodules uvicorn --collect-all webview --exclude-module PIL desktop.py 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 
 Copy-Item dist\SyrudasAI.exe $root -Force
