@@ -375,13 +375,80 @@ body {
 
 /* ---------- composer ---------- */
 
+.composer-area {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  border-radius: var(--radius);
+}
+
+.composer-area.drag-over {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+}
+
+.pending-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 24px 0;
+}
+
+.pending-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
 .composer {
   display: flex;
   gap: 10px;
   padding: 14px 24px 20px;
-  max-width: 900px;
   width: 100%;
-  margin: 0 auto;
+}
+
+.attach-btn {
+  align-self: flex-end;
+  padding: 10px 12px;
+}
+
+/* attached-file chips inside user bubbles */
+.bubble-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.file-chip summary {
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.file-chip[open] summary {
+  color: var(--text);
+}
+
+.file-chip pre {
+  margin: 6px 0 0;
+  background: #11141c;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
 }
 
 .composer textarea {

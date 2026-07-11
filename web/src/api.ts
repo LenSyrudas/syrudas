@@ -17,6 +17,41 @@ async function json<T>(resp: Response): Promise<T> {
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
+// --- attachments ---
+
+export interface Attachment {
+  name: string
+  content: string
+  chars: number
+  truncated: boolean
+}
+
+export function uploadAttachment(file: File): Promise<Attachment> {
+  const form = new FormData()
+  form.append('file', file)
+  return fetch('/api/attachments', { method: 'POST', body: form }).then((r) =>
+    json<Attachment>(r),
+  )
+}
+
+// --- settings ---
+
+export interface AgentFolders {
+  workspace: string
+  folders: string[]
+  missing: string[]
+}
+
+export const getAgentFolders = () =>
+  fetch('/api/settings/agent-folders').then((r) => json<AgentFolders>(r))
+
+export const setAgentFolders = (folders: string[]) =>
+  fetch('/api/settings/agent-folders', {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ folders }),
+  }).then((r) => json<AgentFolders>(r))
+
 // --- conversations ---
 
 export const listConversations = () =>

@@ -72,7 +72,15 @@ async def stream_agent_chat(
     specs = [t.spec() for t in tools]
 
     if not conv.get("system_prompt"):
-        conv = {**conv, "system_prompt": AGENT_SYSTEM_PROMPT}
+        prompt = AGENT_SYSTEM_PROMPT
+        from .tools.files import allowed_roots
+        extra = (await allowed_roots())[1:]
+        if extra:
+            prompt += (
+                "\n\nThe user has also granted your file tools access to these folders"
+                " (use absolute paths): " + "; ".join(str(p) for p in extra)
+            )
+        conv = {**conv, "system_prompt": prompt}
     history = await build_history(conv)
 
     for _step in range(MAX_AGENT_STEPS):

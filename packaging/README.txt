@@ -23,8 +23,12 @@ Notes
 - Requirements: Windows 10/11 with the WebView2 runtime (built into
   Windows 11; if the window doesn't open, Syrudas falls back to your
   default browser).
+- Attach files to any message with the paperclip button or by dragging
+  them onto the chat: code, text, CSV, JSON, logs, and PDFs.
 - Agent mode needs a model that supports tool calling, e.g.
   llama3.1:8b. Shell commands always ask for your approval first.
+  By default its file tools only see the workspace folder; grant more
+  folders under Settings -> Agent file access.
 - Your conversations, settings and API keys live in the "data" folder
   next to the exe and never leave your machine. Logs: data\syrudas.log
 - Add more model backends under Settings -> Model providers. Anything

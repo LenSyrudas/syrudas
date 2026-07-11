@@ -5,12 +5,15 @@ import {
   createProvider,
   deleteMcpServer,
   deleteProvider,
+  getAgentFolders,
   listMcpServers,
   listProviderTypes,
   listProviders,
+  setAgentFolders,
   setMcpServerEnabled,
   updateProvider,
 } from '../api'
+import type { AgentFolders } from '../api'
 import type { McpServer, ProviderInstance, ProviderType } from '../types'
 
 export default function SettingsView({ onProvidersChanged }: { onProvidersChanged: () => void }) {
@@ -27,6 +30,7 @@ export default function SettingsView({ onProvidersChanged }: { onProvidersChange
       <h1>Settings</h1>
       <ProvidersSection onChanged={onProvidersChanged} />
       <McpSection />
+      <AgentAccessSection />
       <footer className="settings-footer">
         👁 Syrudas AI{version ? ` v${version}` : ''} · local-first, no telemetry
       </footer>
@@ -207,6 +211,78 @@ function ProviderForm({
         </button>
       </div>
     </div>
+  )
+}
+
+function AgentAccessSection() {
+  const [info, setInfo] = useState<AgentFolders | null>(null)
+  const [newFolder, setNewFolder] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    getAgentFolders().then(setInfo).catch(console.error)
+  }, [])
+
+  async function save(folders: string[]) {
+    try {
+      setInfo(await setAgentFolders(folders))
+      setError('')
+    } catch (e) {
+      setError(String(e))
+    }
+  }
+
+  return (
+    <section className="settings-section">
+      <div className="section-head">
+        <h2>Agent file access</h2>
+      </div>
+      <p className="hint">
+        Folders the agent's file tools (<code>file_read</code>, <code>file_write</code>,{' '}
+        <code>file_list</code>) may access with absolute paths, in addition to the built-in
+        workspace. Shell commands are gated separately by per-call approval.
+      </p>
+      <div className="card row">
+        <div className="grow">
+          <strong>Workspace</strong>
+          <div className="muted mono">{info?.workspace ?? '…'}</div>
+        </div>
+        <span className="muted">always on</span>
+      </div>
+      {info?.folders.map((f) => (
+        <div key={f} className="card row">
+          <div className="grow mono">
+            {f}
+            {info.missing.includes(f) && <span className="form-error"> (folder not found)</span>}
+          </div>
+          <button
+            className="btn btn-danger"
+            onClick={() => save(info.folders.filter((x) => x !== f))}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <div className="card row">
+        <input
+          className="mono grow"
+          value={newFolder}
+          placeholder="D:\some\folder"
+          onChange={(e) => setNewFolder(e.target.value)}
+        />
+        <button
+          className="btn btn-primary"
+          disabled={!newFolder.trim() || !info}
+          onClick={() => {
+            save([...(info?.folders ?? []), newFolder.trim()])
+            setNewFolder('')
+          }}
+        >
+          Grant access
+        </button>
+      </div>
+      {error && <div className="form-error">⚠ {error}</div>}
+    </section>
   )
 }
 

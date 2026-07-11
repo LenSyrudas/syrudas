@@ -6,6 +6,7 @@ Event vocabulary sent to the frontend:
 """
 from __future__ import annotations
 
+import re
 from typing import AsyncIterator, Optional
 
 from . import db
@@ -45,5 +46,9 @@ async def stream_plain_chat(
 
 
 def title_from(text: str, limit: int = 48) -> str:
+    # attached-file blocks would make useless titles - use the typed text only
+    text = re.sub(r'<file name="[^"]*">.*?</file>', "", text, flags=re.DOTALL)
     text = " ".join(text.split())
+    if not text:
+        text = "File attachment"
     return text if len(text) <= limit else text[: limit - 1] + "…"

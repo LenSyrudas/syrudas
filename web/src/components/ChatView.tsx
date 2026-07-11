@@ -1,8 +1,27 @@
 import { useEffect, useRef, useState } from 'react'
-import { getConversation, streamChat } from '../api'
+import { getConversation, streamChat, uploadAttachment } from '../api'
+import type { Attachment } from '../api'
 import type { StreamEvent, ToolCall } from '../types'
 import Markdown from './Markdown'
 import ToolCallCard from './ToolCallCard'
+
+const FILE_BLOCK = /<file name="([^"]*)">\n?([\s\S]*?)<\/file>/g
+
+/** Split a stored user message into typed text and attached-file blocks. */
+function parseUserContent(content: string): { text: string; files: { name: string; content: string }[] } {
+  const files: { name: string; content: string }[] = []
+  const text = content
+    .replace(FILE_BLOCK, (_m, name: string, body: string) => {
+      files.push({ name, content: body })
+      return ''
+    })
+    .trim()
+  return { text, files }
+}
+
+function fileBlock(a: Attachment): string {
+  return `<file name="${a.name.replace(/"/g, "'")}">\n${a.content}\n</file>`
+}
 
 export interface ToolItem {
   kind: 'tool'
@@ -44,10 +63,27 @@ export default function ChatView({
     return prompt ?? ''
   })
   const [streaming, setStreaming] = useState(false)
+  const [pending, setPending] = useState<Attachment[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
   const convIdRef = useRef<string | null>(conversationId)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function addFiles(list: FileList | File[]) {
+    setUploading(true)
+    for (const file of Array.from(list)) {
+      try {
+        const att = await uploadAttachment(file)
+        setPending((prev) => [...prev, att])
+      } catch (e) {
+        setItems((prev) => [...prev, { kind: 'error', content: `Could not attach ${file.name}: ${e}` }])
+      }
+    }
+    setUploading(false)
+  }
 
   useEffect(() => {
     if (!conversationId) return
@@ -157,9 +193,11 @@ export default function ChatView({
   }
 
   async function send() {
-    const message = input.trim()
-    if (!message || streaming || !providerId || !model) return
+    const typed = input.trim()
+    if ((!typed && pending.length === 0) || streaming || uploading || !providerId || !model) return
+    const message = [typed, ...pending.map(fileBlock)].filter(Boolean).join('\n\n')
     setInput('')
+    setPending([])
     setItems((prev) => [...prev, { kind: 'user', content: message }])
     setStreaming(true)
     const controller = new AbortController()
@@ -217,12 +255,26 @@ export default function ChatView({
         )}
         {items.map((item, i) => {
           switch (item.kind) {
-            case 'user':
+            case 'user': {
+              const { text, files } = parseUserContent(item.content)
               return (
                 <div key={i} className="msg user">
-                  <div className="bubble">{item.content}</div>
+                  <div className="bubble">
+                    {files.length > 0 && (
+                      <div className="bubble-files">
+                        {files.map((f, fi) => (
+                          <details key={fi} className="file-chip">
+                            <summary>📎 {f.name}</summary>
+                            <pre>{f.content.slice(0, 5000)}{f.content.length > 5000 ? '\n…' : ''}</pre>
+                          </details>
+                        ))}
+                      </div>
+                    )}
+                    {text}
+                  </div>
                 </div>
               )
+            }
             case 'assistant':
               return (
                 <div key={i} className="msg assistant">
@@ -252,30 +304,84 @@ export default function ChatView({
           <div className="msg assistant thinking">…</div>
         )}
       </div>
-      <div className="composer">
-        <textarea
-          ref={textareaRef}
-          value={input}
-          placeholder={canSend ? 'Message Syrudas…  (Enter to send, Shift+Enter for newline)' : 'Configure a provider in Settings first'}
-          disabled={!canSend}
-          rows={Math.min(8, Math.max(1, input.split('\n').length))}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              send()
-            }
-          }}
-        />
-        {streaming ? (
-          <button className="btn btn-danger" onClick={() => abortRef.current?.abort()}>
-            Stop
-          </button>
-        ) : (
-          <button className="btn btn-primary" disabled={!canSend || !input.trim()} onClick={send}>
-            Send
-          </button>
+      <div
+        className={`composer-area ${dragOver ? 'drag-over' : ''}`}
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragOver(true)
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragOver(false)
+          if (canSend && e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
+        }}
+      >
+        {(pending.length > 0 || uploading) && (
+          <div className="pending-files">
+            {pending.map((a, i) => (
+              <span key={i} className="pending-chip" title={`${a.chars.toLocaleString()} chars`}>
+                📎 {a.name}
+                {a.truncated ? ' (truncated)' : ''}
+                <button
+                  className="icon-btn"
+                  title="Remove attachment"
+                  onClick={() => setPending((prev) => prev.filter((_, pi) => pi !== i))}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+            {uploading && <span className="pending-chip">⏳ reading…</span>}
+          </div>
         )}
+        <div className="composer">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              if (e.target.files?.length) addFiles(e.target.files)
+              e.target.value = ''
+            }}
+          />
+          <button
+            className="btn attach-btn"
+            title="Attach files (text, code, CSV, JSON, PDF) - or drag & drop"
+            disabled={!canSend || streaming}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            📎
+          </button>
+          <textarea
+            ref={textareaRef}
+            value={input}
+            placeholder={canSend ? 'Message Syrudas…  (Enter to send, Shift+Enter for newline)' : 'Configure a provider in Settings first'}
+            disabled={!canSend}
+            rows={Math.min(8, Math.max(1, input.split('\n').length))}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                send()
+              }
+            }}
+          />
+          {streaming ? (
+            <button className="btn btn-danger" onClick={() => abortRef.current?.abort()}>
+              Stop
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary"
+              disabled={!canSend || uploading || (!input.trim() && pending.length === 0)}
+              onClick={send}
+            >
+              Send
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

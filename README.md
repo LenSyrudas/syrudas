@@ -3,12 +3,14 @@
 A self-hosted AI workspace in the spirit of [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus),
 built around one idea: **any model backend plugs in through a small provider API**.
 
-- **Chat** — streaming responses, markdown + syntax highlighting, conversation history (SQLite)
+- **Chat** — streaming responses, markdown + syntax highlighting, conversation history (SQLite),
+  file attachments (drag & drop or 📎: code, text, CSV, JSON, logs, PDFs)
 - **Any model** — provider *types* are Python plugins; provider *instances* are configured in the UI.
   The builtin OpenAI-compatible adapter covers Ollama, LM Studio, llama.cpp server, vLLM,
   OpenRouter, and OpenAI itself
 - **Agent mode** — the model plans and calls tools: PowerShell (per-call approval gate in the UI),
-  sandboxed file read/write/list, web fetch, web search
+  file read/write/list (workspace by default, plus folders you grant under
+  Settings → Agent file access), web fetch, web search
 - **MCP** — register stdio MCP servers in Settings; their tools merge into agent mode
 - Local-first: FastAPI + React, SQLite, no telemetry, keys never leave your machine
 
