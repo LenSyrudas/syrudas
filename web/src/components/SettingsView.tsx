@@ -1,0 +1,307 @@
+import { useEffect, useState } from 'react'
+import {
+  checkProvider,
+  createMcpServer,
+  createProvider,
+  deleteMcpServer,
+  deleteProvider,
+  listMcpServers,
+  listProviderTypes,
+  listProviders,
+  setMcpServerEnabled,
+  updateProvider,
+} from '../api'
+import type { McpServer, ProviderInstance, ProviderType } from '../types'
+
+export default function SettingsView({ onProvidersChanged }: { onProvidersChanged: () => void }) {
+  return (
+    <div className="settings">
+      <h1>Settings</h1>
+      <ProvidersSection onChanged={onProvidersChanged} />
+      <McpSection />
+    </div>
+  )
+}
+
+function ProvidersSection({ onChanged }: { onChanged: () => void }) {
+  const [types, setTypes] = useState<ProviderType[]>([])
+  const [instances, setInstances] = useState<ProviderInstance[]>([])
+  const [editing, setEditing] = useState<ProviderInstance | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [checkResults, setCheckResults] = useState<Record<string, string>>({})
+
+  const refresh = () => {
+    listProviders().then(setInstances).catch(console.error)
+    onChanged()
+  }
+
+  useEffect(() => {
+    listProviderTypes().then(setTypes).catch(console.error)
+    listProviders().then(setInstances).catch(console.error)
+  }, [])
+
+  return (
+    <section className="settings-section">
+      <div className="section-head">
+        <h2>Model providers</h2>
+        <button className="btn btn-primary" onClick={() => setAdding(true)}>
+          + Add provider
+        </button>
+      </div>
+      <p className="hint">
+        A provider is a configured connection to a model backend. The OpenAI-compatible type works
+        with Ollama (http://localhost:11434/v1), LM Studio (http://localhost:1234/v1), OpenRouter,
+        OpenAI, vLLM and more. Drop new provider types into the <code>plugins/</code> folder.
+      </p>
+      {instances.map((inst) =>
+        editing?.id === inst.id ? (
+          <ProviderForm
+            key={inst.id}
+            types={types}
+            initial={editing}
+            onCancel={() => setEditing(null)}
+            onSave={async (_typeId, name, config) => {
+              await updateProvider(inst.id, name, config)
+              setEditing(null)
+              refresh()
+            }}
+          />
+        ) : (
+          <div key={inst.id} className="card row">
+            <div className="grow">
+              <strong>{inst.name}</strong>
+              <div className="muted">
+                {inst.type_id} · {inst.config.base_url ?? ''}
+              </div>
+              {checkResults[inst.id] && <div className="check-result">{checkResults[inst.id]}</div>}
+            </div>
+            <button
+              className="btn"
+              onClick={async () => {
+                setCheckResults((r) => ({ ...r, [inst.id]: 'checking…' }))
+                const res = await checkProvider(inst.id)
+                setCheckResults((r) => ({
+                  ...r,
+                  [inst.id]: `${res.ok ? '✓' : '✗'} ${res.detail}`,
+                }))
+              }}
+            >
+              Test
+            </button>
+            <button className="btn" onClick={() => setEditing(inst)}>
+              Edit
+            </button>
+            <button
+              className="btn btn-danger"
+              onClick={async () => {
+                if (confirm(`Delete provider "${inst.name}"?`)) {
+                  await deleteProvider(inst.id)
+                  refresh()
+                }
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        ),
+      )}
+      {instances.length === 0 && !adding && (
+        <div className="card muted">No providers configured yet.</div>
+      )}
+      {adding && (
+        <ProviderForm
+          types={types}
+          onCancel={() => setAdding(false)}
+          onSave={async (typeId, name, config) => {
+            await createProvider(typeId, name, config)
+            setAdding(false)
+            refresh()
+          }}
+        />
+      )}
+    </section>
+  )
+}
+
+function ProviderForm({
+  types,
+  initial,
+  onSave,
+  onCancel,
+}: {
+  types: ProviderType[]
+  initial?: ProviderInstance
+  onSave: (typeId: string, name: string, config: Record<string, string>) => Promise<void>
+  onCancel: () => void
+}) {
+  const [typeId, setTypeId] = useState(initial?.type_id ?? types[0]?.type_id ?? '')
+  const [name, setName] = useState(initial?.name ?? '')
+  const [config, setConfig] = useState<Record<string, string>>(initial?.config ?? {})
+  const [error, setError] = useState('')
+  const type = types.find((t) => t.type_id === typeId)
+
+  return (
+    <div className="card form">
+      {!initial && (
+        <label>
+          Type
+          <select value={typeId} onChange={(e) => setTypeId(e.target.value)}>
+            {types.map((t) => (
+              <option key={t.type_id} value={t.type_id}>
+                {t.display_name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label>
+        Name
+        <input
+          value={name}
+          placeholder="e.g. Ollama local"
+          onChange={(e) => setName(e.target.value)}
+        />
+      </label>
+      {type?.config_fields.map((f) => (
+        <label key={f.key}>
+          {f.label}
+          {f.required ? ' *' : ''}
+          <input
+            type={f.type === 'password' ? 'password' : 'text'}
+            value={config[f.key] ?? f.default}
+            placeholder={f.placeholder}
+            onChange={(e) => setConfig((c) => ({ ...c, [f.key]: e.target.value }))}
+          />
+        </label>
+      ))}
+      {error && <div className="form-error">⚠ {error}</div>}
+      <div className="row">
+        <button
+          className="btn btn-primary"
+          onClick={async () => {
+            const missing = type?.config_fields.find((f) => f.required && !config[f.key])
+            if (!name.trim()) return setError('Name is required')
+            if (missing) return setError(`${missing.label} is required`)
+            try {
+              await onSave(typeId, name.trim(), config)
+            } catch (e) {
+              setError(String(e))
+            }
+          }}
+        >
+          Save
+        </button>
+        <button className="btn" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function McpSection() {
+  const [servers, setServers] = useState<McpServer[]>([])
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  const [command, setCommand] = useState('')
+  const [error, setError] = useState('')
+
+  const refresh = () => listMcpServers().then(setServers).catch(console.error)
+  useEffect(() => {
+    refresh()
+  }, [])
+
+  return (
+    <section className="settings-section">
+      <div className="section-head">
+        <h2>MCP servers</h2>
+        <button className="btn btn-primary" onClick={() => setAdding(true)}>
+          + Add server
+        </button>
+      </div>
+      <p className="hint">
+        Stdio MCP servers add tools to agent mode. Example command:{' '}
+        <code>npx -y @modelcontextprotocol/server-filesystem D:\somewhere</code>
+      </p>
+      {servers.map((s) => (
+        <div key={s.id} className="card row">
+          <div className="grow">
+            <strong>{s.name}</strong>
+            <div className="muted mono">
+              {s.command} {s.args.join(' ')}
+            </div>
+          </div>
+          <label className="agent-toggle">
+            <input
+              type="checkbox"
+              checked={Boolean(s.enabled)}
+              onChange={async (e) => {
+                await setMcpServerEnabled(s.id, e.target.checked)
+                refresh()
+              }}
+            />
+            <span>enabled</span>
+          </label>
+          <button
+            className="btn btn-danger"
+            onClick={async () => {
+              if (confirm(`Delete MCP server "${s.name}"?`)) {
+                await deleteMcpServer(s.id)
+                refresh()
+              }
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      ))}
+      {servers.length === 0 && !adding && (
+        <div className="card muted">No MCP servers configured.</div>
+      )}
+      {adding && (
+        <div className="card form">
+          <label>
+            Name
+            <input value={name} placeholder="filesystem" onChange={(e) => setName(e.target.value)} />
+          </label>
+          <label>
+            Command line
+            <input
+              value={command}
+              className="mono"
+              placeholder="npx -y @modelcontextprotocol/server-filesystem D:\data"
+              onChange={(e) => setCommand(e.target.value)}
+            />
+          </label>
+          {error && <div className="form-error">⚠ {error}</div>}
+          <div className="row">
+            <button
+              className="btn btn-primary"
+              onClick={async () => {
+                const parts = command.trim().split(/\s+/)
+                if (!name.trim() || parts.length === 0 || !parts[0]) {
+                  return setError('Name and command are required')
+                }
+                try {
+                  await createMcpServer(name.trim(), parts[0], parts.slice(1), {})
+                  setAdding(false)
+                  setName('')
+                  setCommand('')
+                  setError('')
+                  refresh()
+                } catch (e) {
+                  setError(String(e))
+                }
+              }}
+            >
+              Save
+            </button>
+            <button className="btn" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
