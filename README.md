@@ -14,6 +14,9 @@ built around one idea: **any model backend plugs in through a small provider API
 - **MCP** — register stdio MCP servers in Settings; their tools merge into agent mode
 - Local-first: FastAPI + React, SQLite, no telemetry, keys never leave your machine
 
+**Docs:** [Setup guide](docs/SETUP.md) · [Whitepaper](docs/WHITEPAPER.md)
+([PDF](docs/Syrudas-AI-Whitepaper.pdf) — regenerate with `scripts\render_whitepaper.py`)
+
 ## Quickstart
 
 Requirements: Windows, Python 3.13 (`py` launcher), Node.js 20+, and a model backend
