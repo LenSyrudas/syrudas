@@ -47,6 +47,21 @@ containing the exe, an end-user `README.txt`, and the MIT `LICENSE.txt`. To cut 
 version: bump `APP_VERSION` and the numbers in `version_info.txt`, then rerun the script.
 The exe is unsigned, so recipients may need to click through SmartScreen once.
 
+## VS Code integration
+
+Two connectors, both talking to the local server:
+
+- **Syrudas AI extension** ([vscode-extension/](vscode-extension)) — a panel with the
+  full Syrudas UI inside VS Code, plus right-click **Syrudas: Ask About Selection** on
+  any code selection (prefills a chat with the code block). Build with
+  `npx @vscode/vsce package` and install the `.vsix` via
+  `code --install-extension syrudas-ai-<version>.vsix`.
+- **OpenAI-compatible hub at `/v1`** — `GET /v1/models` lists every model from every
+  configured provider as `<instance>/<model>`; `POST /v1/chat/completions` (streaming
+  and non-streaming) routes to the right backend. Point Continue or any other
+  OpenAI-compatible tool at `http://127.0.0.1:8040/v1` (any api key) and manage all
+  your backends in one place.
+
 ## Writing a provider plugin
 
 Drop a `.py` file into `plugins/` (see `plugins/example_echo.py`), restart, and the new

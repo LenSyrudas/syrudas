@@ -36,7 +36,13 @@ export default function ChatView({
   onStreamEnd,
 }: Props) {
   const [items, setItems] = useState<ChatItem[]>([])
-  const [input, setInput] = useState('')
+  // External launchers (e.g. the VS Code extension) prefill the composer via
+  // ?prompt= - read once, then scrub it from the URL so reloads start clean.
+  const [input, setInput] = useState(() => {
+    const prompt = new URLSearchParams(window.location.search).get('prompt')
+    if (prompt) window.history.replaceState(null, '', window.location.pathname)
+    return prompt ?? ''
+  })
   const [streaming, setStreaming] = useState(false)
   const convIdRef = useRef<string | null>(conversationId)
   const abortRef = useRef<AbortController | null>(null)

@@ -10,6 +10,7 @@ from . import db
 from .config import APP_VERSION, WEB_DIST
 from .onboarding import auto_detect_providers
 from .routes import api_router
+from .routes.openai_api import router as openai_router
 
 logging.basicConfig(level=logging.INFO)
 
@@ -26,6 +27,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Syrudas AI", version=APP_VERSION, lifespan=lifespan)
 app.include_router(api_router)
+# OpenAI-compatible surface: external tools use Syrudas as a model hub
+app.include_router(openai_router)
 
 
 @app.get("/api/health")

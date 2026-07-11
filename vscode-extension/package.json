@@ -1,0 +1,49 @@
+{
+  "name": "syrudas-ai",
+  "displayName": "Syrudas AI",
+  "description": "Chat with your local Syrudas AI workspace inside VS Code - panel, right-click code questions, and an OpenAI-compatible model hub at /v1.",
+  "version": "0.2.0",
+  "publisher": "len",
+  "license": "MIT",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "syrudas.open",
+        "title": "Syrudas: Open Panel"
+      },
+      {
+        "command": "syrudas.askSelection",
+        "title": "Syrudas: Ask About Selection"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "syrudas.askSelection",
+          "when": "editorHasSelection",
+          "group": "1_syrudas"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Syrudas AI",
+      "properties": {
+        "syrudas.url": {
+          "type": "string",
+          "default": "http://127.0.0.1:8040",
+          "description": "Base URL of your local Syrudas AI server"
+        }
+      }
+    }
+  }
+}
