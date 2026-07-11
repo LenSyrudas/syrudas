@@ -33,6 +33,8 @@ Notes
   next to the exe and never leave your machine. Logs: data\syrudas.log
 - Add more model backends under Settings -> Model providers. Anything
   OpenAI-compatible works: Ollama, LM Studio, OpenRouter, OpenAI, vLLM.
+  Claude (Anthropic) and Gemini (Google) connectors are included too -
+  pick their provider type and paste your API key to use them.
 - Python provider plugins can be dropped into the "plugins" folder.
 
 License: MIT (see LICENSE.txt)

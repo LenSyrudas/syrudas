@@ -168,6 +168,12 @@ class AnthropicProvider(ModelProvider):
         if params and params.temperature is not None and _supports_sampling(model):
             body["temperature"] = params.temperature
 
+        async for ev in self._stream_once(body, allow_sampling_retry=True):
+            yield ev
+
+    async def _stream_once(
+        self, body: dict, allow_sampling_retry: bool,
+    ) -> AsyncIterator[StreamEvent]:
         input_tokens = 0
         output_tokens = 0
         got_usage = False
@@ -183,6 +189,17 @@ class AnthropicProvider(ModelProvider):
                 ) as resp:
                     if resp.status_code != 200:
                         detail = (await resp.aread()).decode("utf-8", "replace")[:2000]
+                        # safety net for models newer than the marker list:
+                        # if a sampling param is rejected, drop it and retry once
+                        if (allow_sampling_retry and resp.status_code == 400
+                                and ("temperature" in body or "top_p" in body)
+                                and ("temperature" in detail or "top_p" in detail)):
+                            retry = {k: v for k, v in body.items()
+                                     if k not in ("temperature", "top_p")}
+                            async for ev in self._stream_once(
+                                    retry, allow_sampling_retry=False):
+                                yield ev
+                            return
                         yield StreamEvent(type="error",
                                           message=f"Anthropic HTTP {resp.status_code}: {detail}")
                         return

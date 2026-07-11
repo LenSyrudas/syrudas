@@ -26,6 +26,10 @@ if (Test-Path "docs\Syrudas-AI-Whitepaper.pdf") {
 if (Test-Path "docs\SETUP.md") {
     Copy-Item "docs\SETUP.md" (Join-Path $stage "SETUP.txt")
 }
+# optional provider connectors (Anthropic, Gemini, ...) ship as drop-in
+# plugins next to the exe - configure with an API key in Settings to activate
+New-Item -ItemType Directory (Join-Path $stage "plugins") | Out-Null
+Copy-Item "plugins\*.py" (Join-Path $stage "plugins")
 
 New-Item -ItemType Directory "release" -Force | Out-Null
 $zip = "release\SyrudasAI-v$version-win64.zip"

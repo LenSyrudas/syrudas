@@ -76,6 +76,15 @@ A *provider* is one configured connection. The builtin type is
 | OpenAI | `https://api.openai.com/v1` | your key |
 | vLLM / llama.cpp server | wherever you run it | usually — |
 
+Two more provider types ship as optional connectors (in the `plugins\` folder):
+
+- **Anthropic (Claude)** — pick the *Anthropic (Claude)* type and paste an API key from
+  <https://platform.claude.com/>. Models (Claude Opus, Sonnet, Haiku…) are listed live.
+- **Google (Gemini)** — pick the *Google (Gemini)* type and paste an API key from
+  <https://aistudio.google.com/>. Only chat-capable Gemini models are listed.
+
+Both support streaming and agent-mode tool calling.
+
 Use **Test** on any provider card to verify the connection. Models from all
 providers appear in the model picker in the top bar. Keys are stored locally
 and shown masked afterwards.

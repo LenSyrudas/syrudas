@@ -9,7 +9,8 @@ built around one idea: **any model backend plugs in through a small provider API
   controls, markdown export, automatic context-window trimming
 - **Any model** — provider *types* are Python plugins; provider *instances* are configured in the UI.
   The builtin OpenAI-compatible adapter covers Ollama, LM Studio, llama.cpp server, vLLM,
-  OpenRouter, and OpenAI itself
+  OpenRouter, and OpenAI itself; optional drop-in connectors for **Anthropic (Claude)** and
+  **Google (Gemini)** ship in [plugins/](plugins) — add an API key in Settings to activate
 - **Agent mode** — the model plans and calls tools: PowerShell (per-call approval gate in the UI),
   file read/write/list (workspace by default, plus folders you grant under
   Settings → Agent file access), web fetch, web search
