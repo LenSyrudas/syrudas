@@ -1,24 +1,22 @@
 # Build SyrudasAI.exe (native desktop app, windowed) into the project root.
+# Native calls go through cmd /c with 2>&1: under ErrorActionPreference=Stop,
+# PowerShell 5.1 otherwise turns harmless stderr log lines (vite warnings,
+# PyInstaller INFO) into terminating errors when streams are redirected.
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
 Write-Host "Building frontend..."
-Set-Location web
-npm run build
-Set-Location $root
+cmd /c "cd /d $root\web && npm run build 2>&1"
+if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
 
 Write-Host "Installing build dependencies..."
-& .\.venv\Scripts\python.exe -m pip install --quiet pyinstaller pywebview
+cmd /c ".\.venv\Scripts\python.exe -m pip install --quiet pyinstaller pywebview 2>&1"
+if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 
 Write-Host "Building exe..."
-& .\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed `
-    --name SyrudasAI `
-    --icon icon.ico `
-    --add-data "web/dist;web/dist" `
-    --collect-submodules uvicorn `
-    --collect-all webview `
-    desktop.py
+cmd /c ".\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name SyrudasAI --icon icon.ico --version-file version_info.txt --add-data ""web/dist;web/dist"" --collect-submodules uvicorn --collect-all webview desktop.py 2>&1"
+if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 
 Copy-Item dist\SyrudasAI.exe $root -Force
 Write-Host ""

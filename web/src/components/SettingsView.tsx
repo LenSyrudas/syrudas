@@ -14,11 +14,22 @@ import {
 import type { McpServer, ProviderInstance, ProviderType } from '../types'
 
 export default function SettingsView({ onProvidersChanged }: { onProvidersChanged: () => void }) {
+  const [version, setVersion] = useState('')
+  useEffect(() => {
+    fetch('/api/health')
+      .then((r) => r.json())
+      .then((h) => setVersion(h.version ?? ''))
+      .catch(() => {})
+  }, [])
+
   return (
     <div className="settings">
       <h1>Settings</h1>
       <ProvidersSection onChanged={onProvidersChanged} />
       <McpSection />
+      <footer className="settings-footer">
+        👁 Syrudas AI{version ? ` v${version}` : ''} · local-first, no telemetry
+      </footer>
     </div>
   )
 }

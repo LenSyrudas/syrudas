@@ -7,7 +7,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db
-from .config import WEB_DIST
+from .config import APP_VERSION, WEB_DIST
+from .onboarding import auto_detect_providers
 from .routes import api_router
 
 logging.basicConfig(level=logging.INFO)
@@ -16,19 +17,20 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.get_db()
+    await auto_detect_providers()
     yield
     from .mcp_client import close_all
     await close_all()
     await db.close_db()
 
 
-app = FastAPI(title="Syrudas AI", lifespan=lifespan)
+app = FastAPI(title="Syrudas AI", version=APP_VERSION, lifespan=lifespan)
 app.include_router(api_router)
 
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True, "app": "syrudas"}
+    return {"ok": True, "app": "syrudas", "version": APP_VERSION}
 
 
 if WEB_DIST.is_dir():

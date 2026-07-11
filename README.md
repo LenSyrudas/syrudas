@@ -34,9 +34,18 @@ fresh portable instance — next to this repo it shares the dev database. Window
 to `data\syrudas.log`. Dev equivalents: `python desktop.py` (window) or `.\run.ps1`
 (browser).
 
-Then in the UI: **Settings → Model providers → Add provider**, pick *OpenAI-compatible*,
-set Base URL to `http://localhost:11434/v1` (Ollama). Pick a model in the top bar and chat.
-Toggle **Agent mode** to let the model use tools.
+On first run Syrudas auto-detects a running Ollama or LM Studio and configures it as a
+provider. To add more: **Settings → Model providers → Add provider**, pick
+*OpenAI-compatible*, set the Base URL (e.g. `http://localhost:11434/v1` for Ollama).
+Pick a model in the top bar and chat. Toggle **Agent mode** to let the model use tools.
+
+### Shipping a release
+
+`.\build_release.ps1` builds the exe (with version metadata from `APP_VERSION` in
+[server/config.py](server/config.py)) and packages `release\SyrudasAI-vX.Y.Z-win64.zip`
+containing the exe, an end-user `README.txt`, and the MIT `LICENSE.txt`. To cut a new
+version: bump `APP_VERSION` and the numbers in `version_info.txt`, then rerun the script.
+The exe is unsigned, so recipients may need to click through SmartScreen once.
 
 ## Writing a provider plugin
 
