@@ -15,11 +15,11 @@ function App() {
   const [chatKey, setChatKey] = useState('new')
   const [providers, setProviders] = useState<ProviderInstance[]>([])
   const [providerId, setProviderId] = useState<string>(
-    () => localStorage.getItem('argos.providerId') ?? '',
+    () => localStorage.getItem('syrudas.providerId') ?? '',
   )
-  const [model, setModel] = useState<string>(() => localStorage.getItem('argos.model') ?? '')
+  const [model, setModel] = useState<string>(() => localStorage.getItem('syrudas.model') ?? '')
   const [agentMode, setAgentMode] = useState(
-    () => localStorage.getItem('argos.agentMode') === '1',
+    () => localStorage.getItem('syrudas.agentMode') === '1',
   )
 
   const refreshConversations = useCallback(() => {
@@ -43,13 +43,13 @@ function App() {
   }, [refreshConversations, refreshProviders])
 
   useEffect(() => {
-    localStorage.setItem('argos.providerId', providerId)
+    localStorage.setItem('syrudas.providerId', providerId)
   }, [providerId])
   useEffect(() => {
-    localStorage.setItem('argos.model', model)
+    localStorage.setItem('syrudas.model', model)
   }, [model])
   useEffect(() => {
-    localStorage.setItem('argos.agentMode', agentMode ? '1' : '0')
+    localStorage.setItem('syrudas.agentMode', agentMode ? '1' : '0')
   }, [agentMode])
 
   return (

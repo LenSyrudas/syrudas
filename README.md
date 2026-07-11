@@ -1,8 +1,7 @@
-# Argos
+# Syrudas AI
 
 A self-hosted AI workspace in the spirit of [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus),
 built around one idea: **any model backend plugs in through a small provider API**.
-Named after Odysseus's dog, who recognized his master no matter the disguise.
 
 - **Chat** — streaming responses, markdown + syntax highlighting, conversation history (SQLite)
 - **Any model** — provider *types* are Python plugins; provider *instances* are configured in the UI.
@@ -22,6 +21,14 @@ Requirements: Windows, Python 3.13 (`py` launcher), Node.js 20+, and a model bac
 .\setup.ps1     # venv + pip + npm install + frontend build
 .\run.ps1       # http://127.0.0.1:8040
 ```
+
+### One-click exe
+
+`.\build_exe.ps1` builds **SyrudasAI.exe** (PyInstaller onefile, ~20 MB) into the project
+root. Double-click it: the server starts and your browser opens automatically; if Syrudas
+is already running it just opens the UI. The exe keeps its state (`data\`, `plugins\`) in
+the folder it lives in, so you can copy it anywhere for a fresh portable instance —
+next to this repo it shares the dev database.
 
 Then in the UI: **Settings → Model providers → Add provider**, pick *OpenAI-compatible*,
 set Base URL to `http://localhost:11434/v1` (Ollama). Pick a model in the top bar and chat.

@@ -199,7 +199,7 @@ export default function ChatView({
         {items.length === 0 && (
           <div className="thread-empty">
             <div className="thread-empty-logo">👁</div>
-            <h2>Argos</h2>
+            <h2>Syrudas AI</h2>
             <p>
               {canSend
                 ? agentMode
@@ -250,7 +250,7 @@ export default function ChatView({
         <textarea
           ref={textareaRef}
           value={input}
-          placeholder={canSend ? 'Message Argos…  (Enter to send, Shift+Enter for newline)' : 'Configure a provider in Settings first'}
+          placeholder={canSend ? 'Message Syrudas…  (Enter to send, Shift+Enter for newline)' : 'Configure a provider in Settings first'}
           disabled={!canSend}
           rows={Math.min(8, Math.max(1, input.split('\n').length))}
           onChange={(e) => setInput(e.target.value)}

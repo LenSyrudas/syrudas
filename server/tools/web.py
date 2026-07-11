@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from . import Tool, truncate
 
 FETCH_LIMIT = 9000
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ArgosAgent/1.0"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SyrudasAgent/1.0"
 TIMEOUT = httpx.Timeout(20.0)
 
 

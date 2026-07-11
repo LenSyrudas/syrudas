@@ -1,4 +1,4 @@
-"""Argos - self-hosted AI workspace with pluggable model providers."""
+"""Syrudas AI - self-hosted AI workspace with pluggable model providers."""
 import logging
 from contextlib import asynccontextmanager
 
@@ -22,13 +22,13 @@ async def lifespan(app: FastAPI):
     await db.close_db()
 
 
-app = FastAPI(title="Argos", lifespan=lifespan)
+app = FastAPI(title="Syrudas AI", lifespan=lifespan)
 app.include_router(api_router)
 
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True, "app": "argos"}
+    return {"ok": True, "app": "syrudas"}
 
 
 if WEB_DIST.is_dir():

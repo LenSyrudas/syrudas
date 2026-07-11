@@ -10,9 +10,14 @@ import pkgutil
 from typing import Any
 
 from ..config import PLUGINS_DIR
+from . import openai_compat
 from .base import ModelProvider
 
 log = logging.getLogger(__name__)
+
+# Builtins must be imported statically: pkgutil can't see inside a frozen
+# (PyInstaller) bundle, and dynamic-only imports wouldn't get bundled at all.
+_BUILTIN_MODULES = [openai_compat]
 
 _types: dict[str, type[ModelProvider]] = {}
 _loaded = False
@@ -32,6 +37,11 @@ def load_provider_types() -> dict[str, type[ModelProvider]]:
     if _loaded:
         return _types
 
+    for module in _BUILTIN_MODULES:
+        _register_from_module(module)
+
+    # dev convenience: also scan the package so new builtin modules are picked
+    # up without being listed above (no-op inside a frozen exe)
     package = importlib.import_module(__package__)
     for mod_info in pkgutil.iter_modules(package.__path__):
         if mod_info.name in ("base", "registry"):
@@ -40,7 +50,7 @@ def load_provider_types() -> dict[str, type[ModelProvider]]:
 
     if PLUGINS_DIR.is_dir():
         for path in sorted(PLUGINS_DIR.glob("*.py")):
-            spec = importlib.util.spec_from_file_location(f"argos_plugin_{path.stem}", path)
+            spec = importlib.util.spec_from_file_location(f"syrudas_plugin_{path.stem}", path)
             if spec is None or spec.loader is None:
                 continue
             module = importlib.util.module_from_spec(spec)

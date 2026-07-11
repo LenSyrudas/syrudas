@@ -23,7 +23,7 @@ export default function Sidebar({
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
-        <span className="logo">👁 Argos</span>
+        <span className="logo">👁 Syrudas AI</span>
         <button className="btn btn-primary" onClick={onNew}>
           + New chat
         </button>

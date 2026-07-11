@@ -1,4 +1,4 @@
-# Argos setup: create venv, install backend deps, build frontend.
+# Syrudas AI setup: create venv, install backend deps, build frontend.
 # Requires: Python 3.13 (py launcher), Node.js + npm.
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -19,4 +19,4 @@ npm run build
 Set-Location $root
 
 Write-Host ""
-Write-Host "Setup complete. Start Argos with: .\run.ps1"
+Write-Host "Setup complete. Start Syrudas AI with: .\run.ps1"

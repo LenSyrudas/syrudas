@@ -23,7 +23,7 @@ async def main() -> int:
     chunks = []
     async for ev in provider.chat(
         "llama3.1:8b",
-        [Message(role="user", content="Reply with exactly: ARGOS ONLINE")],
+        [Message(role="user", content="Reply with exactly: SYRUDAS ONLINE")],
         params=GenParams(temperature=0.0),
     ):
         if ev.type == "text_delta":

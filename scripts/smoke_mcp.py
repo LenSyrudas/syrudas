@@ -15,7 +15,7 @@ async def main() -> int:
             "provider_id": pid,
             "model": "llama3.1:8b",
             "message": "Call the filesystem_list_directory tool with path "
-                       "D:\\projects\\argos\\data and tell me what entries it returns.",
+                       "D:\\projects\\syrudas\\data and tell me what entries it returns.",
             "agent_mode": True,
             "params": {"temperature": 0},
         }
@@ -35,7 +35,7 @@ async def main() -> int:
                     print("ERROR:", ev["message"])
                     return 1
         assert any(n.startswith("filesystem_") for n in used), f"MCP tool not used: {used}"
-        assert any("workspace" in r or "argos.db" in r for r in results), "unexpected MCP result"
+        assert any("workspace" in r or "syrudas.db" in r for r in results), "unexpected MCP result"
         print("\nMCP SMOKE TEST PASSED (tools used: %s)" % ", ".join(used))
     return 0
 

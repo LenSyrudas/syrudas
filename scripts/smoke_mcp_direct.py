@@ -17,7 +17,7 @@ async def main() -> int:
         assert any(n.startswith("filesystem_") for n in names), "filesystem tools missing"
 
         lister = next(t for t in tools if t.name == "filesystem_list_directory")
-        result = await lister.run({"path": "D:\\projects\\argos\\data"})
+        result = await lister.run({"path": "D:\\projects\\syrudas\\data"})
         print("list_directory result:\n", result[:400])
         assert "workspace" in result, "expected workspace dir in listing"
         print("\nMCP DIRECT TEST PASSED")
