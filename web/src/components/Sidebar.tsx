@@ -45,7 +45,9 @@ export default function Sidebar({
               onClick={(e) => {
                 e.stopPropagation()
                 if (confirm(`Delete "${c.title}"?`)) {
-                  deleteConversation(c.id).then(() => onDeleted(c.id))
+                  deleteConversation(c.id)
+                    .then(() => onDeleted(c.id))
+                    .catch((err) => alert(String(err)))
                 }
               }}
             >

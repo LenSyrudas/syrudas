@@ -10,10 +10,25 @@ import json
 import re
 from typing import AsyncIterator, Optional
 
-from . import db
+import logging
+
+from . import db, runs
 from .config import MAX_HISTORY_CHARS
 from .providers.base import ModelProvider
 from .schemas import GenParams, Message, ToolCall
+
+log = logging.getLogger(__name__)
+
+
+async def persist_if_current(conv_id: str, gen: int, role: str, content: str = "",
+                             **kw) -> None:
+    """Persist a message unless the history was rewritten since the stream
+    started (rewind/delete) - a zombie stream must not orphan tool messages
+    or resurrect rows in a deleted conversation."""
+    if runs.generation(conv_id) != gen:
+        log.info("Skipping stale write to conversation %s (role=%s)", conv_id[:8], role)
+        return
+    await db.add_message(conv_id, role, content, **kw)
 
 
 async def build_history(conv: dict) -> list[Message]:
@@ -77,8 +92,11 @@ async def stream_plain_chat(
     conv: dict,
     provider: ModelProvider,
     params: Optional[GenParams] = None,
+    gen: Optional[int] = None,
 ) -> AsyncIterator[dict]:
     """Single completion, no tools. Persists the assistant reply when done."""
+    if gen is None:
+        gen = runs.generation(conv["id"])
     history = await build_history(conv)
     text_parts: list[str] = []
     async for ev in provider.chat(conv["model"], history, params=params):
@@ -86,7 +104,7 @@ async def stream_plain_chat(
             text_parts.append(ev.text)
         yield ev.model_dump(exclude_none=True)
     if text_parts:  # persist partial output even if the stream errored midway
-        await db.add_message(conv["id"], "assistant", "".join(text_parts))
+        await persist_if_current(conv["id"], gen, "assistant", "".join(text_parts))
 
 
 def title_from(text: str, limit: int = 48) -> str:

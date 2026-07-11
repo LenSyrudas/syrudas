@@ -11,7 +11,7 @@ import uuid
 from typing import AsyncIterator, Optional
 
 from . import db
-from .chat import build_history
+from .chat import build_history, persist_if_current
 from .config import DEFAULT_WORKSPACE, MAX_AGENT_STEPS
 from .providers.base import ModelProvider
 from .schemas import GenParams, Message, ToolCall
@@ -66,7 +66,11 @@ async def stream_agent_chat(
     conv: dict,
     provider: ModelProvider,
     params: Optional[GenParams] = None,
+    gen: Optional[int] = None,
 ) -> AsyncIterator[dict]:
+    from . import runs
+    if gen is None:
+        gen = runs.generation(conv["id"])
     tools = await collect_tools()
     tool_map = {t.name: t for t in tools}
     specs = [t.spec() for t in tools]
@@ -100,8 +104,8 @@ async def stream_agent_chat(
 
         text = "".join(text_parts)
         if text or tool_calls:
-            await db.add_message(
-                conv["id"], "assistant", text,
+            await persist_if_current(
+                conv["id"], gen, "assistant", text,
                 tool_calls=[tc.model_dump() for tc in tool_calls] or None,
             )
             history.append(Message(
@@ -131,12 +135,12 @@ async def stream_agent_chat(
                 "name": tc.name,
                 "content": result,
             }
-            await db.add_message(conv["id"], "tool", result, tool_call_id=tc.id)
+            await persist_if_current(conv["id"], gen, "tool", result, tool_call_id=tc.id)
             history.append(Message(role="tool", content=result, tool_call_id=tc.id))
     else:
         note = f"[Agent stopped: reached the {MAX_AGENT_STEPS}-step limit]"
         yield {"type": "text_delta", "text": "\n\n" + note}
-        await db.add_message(conv["id"], "assistant", note)
+        await persist_if_current(conv["id"], gen, "assistant", note)
 
     yield {"type": "done"}
 

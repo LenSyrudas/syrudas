@@ -10,9 +10,19 @@ import type {
 async function json<T>(resp: Response): Promise<T> {
   if (!resp.ok) {
     const body = await resp.text()
-    throw new Error(`${resp.status}: ${body.slice(0, 300)}`)
+    throw new Error(errorMessage(resp.status, body))
   }
   return resp.json() as Promise<T>
+}
+
+function errorMessage(status: number, body: string): string {
+  try {
+    const detail = (JSON.parse(body) as { detail?: unknown }).detail
+    if (typeof detail === 'string') return detail
+  } catch {
+    /* not JSON */
+  }
+  return `${status}: ${body.slice(0, 300)}`
 }
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
@@ -198,7 +208,7 @@ export async function streamChat(
   })
   if (!resp.ok || !resp.body) {
     const body = await resp.text()
-    throw new Error(`${resp.status}: ${body.slice(0, 300)}`)
+    throw new Error(errorMessage(resp.status, body))
   }
   const reader = resp.body.getReader()
   const decoder = new TextDecoder()

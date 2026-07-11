@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from .. import db
+from .. import db, runs
 from ..chat import stream_plain_chat, title_from
 from ..providers.registry import create_provider
 from ..schemas import GenParams
@@ -46,6 +46,11 @@ async def chat(req: ChatRequest):
         conv = await db.get_conversation(req.conversation_id)
         if not conv:
             raise HTTPException(404, "Conversation not found")
+        # one stream per conversation: a second window (or a straggling
+        # aborted stream) must not interleave or clobber history
+        if not await runs.wait_idle(conv["id"]):
+            raise HTTPException(
+                409, "A response is still being generated for this conversation - stop it first.")
         await db.update_conversation(
             conv["id"], provider_id=req.provider_id, model=req.model,
             agent_mode=int(req.agent_mode),
@@ -69,6 +74,7 @@ async def chat(req: ChatRequest):
             if removed_rows:
                 await db.delete_messages_from(conv["id"], removed_rows[0]["id"],
                                               inclusive=True)
+                runs.bump_generation(conv["id"])
 
     if req.message:
         # editing/resending into a conversation whose user turns were all
@@ -85,19 +91,20 @@ async def chat(req: ChatRequest):
     async def event_stream() -> AsyncIterator[str]:
         yield _ndjson({"type": "meta", "conversation_id": conv["id"], "title": conv["title"]})
         got_content = False
-        try:
-            if conv["agent_mode"]:
-                from ..agent import stream_agent_chat
-                gen = stream_agent_chat(conv, provider, params=req.params)
-            else:
-                gen = stream_plain_chat(conv, provider, params=req.params)
-            async for event in gen:
-                if event.get("type") in ("text_delta", "tool_call"):
-                    got_content = True
-                yield _ndjson(event)
-        except Exception as exc:  # surface unexpected failures to the UI
-            yield _ndjson({"type": "error", "message": f"Server error: {exc}"})
-            yield _ndjson({"type": "done"})
+        with runs.StreamGuard(conv["id"]) as guard:
+            try:
+                if conv["agent_mode"]:
+                    from ..agent import stream_agent_chat
+                    stream = stream_agent_chat(conv, provider, params=req.params, gen=guard.gen)
+                else:
+                    stream = stream_plain_chat(conv, provider, params=req.params, gen=guard.gen)
+                async for event in stream:
+                    if event.get("type") in ("text_delta", "tool_call"):
+                        got_content = True
+                    yield _ndjson(event)
+            except Exception as exc:  # surface unexpected failures to the UI
+                yield _ndjson({"type": "error", "message": f"Server error: {exc}"})
+                yield _ndjson({"type": "done"})
         # (not reached on client disconnect - acceptable: the reply is only
         # lost if the user aborts before the first token)
         if removed_rows and not got_content:

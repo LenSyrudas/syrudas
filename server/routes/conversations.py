@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from .. import db
+from .. import db, runs
 
 router = APIRouter(tags=["conversations"])
 
@@ -45,6 +45,10 @@ async def patch_conversation(conv_id: str, patch: ConversationPatch):
 
 @router.delete("/conversations/{conv_id}")
 async def delete_conversation(conv_id: str):
+    if not await runs.wait_idle(conv_id):
+        raise HTTPException(
+            409, "A response is still being generated for this conversation - stop it first.")
+    runs.bump_generation(conv_id)
     await db.delete_conversation(conv_id)
     return {"ok": True}
 
@@ -59,11 +63,16 @@ class RewindIn(BaseModel):
 async def rewind_conversation(conv_id: str, body: RewindIn):
     if not await db.get_conversation(conv_id):
         raise HTTPException(404, "Conversation not found")
+    # never rewrite history under a stream that is still persisting messages
+    if not await runs.wait_idle(conv_id):
+        raise HTTPException(
+            409, "A response is still being generated for this conversation - stop it first.")
     last_user = await db.get_last_user_message(conv_id)
     if not last_user:
         raise HTTPException(400, "Conversation has no user message to rewind to")
     await db.delete_messages_from(conv_id, last_user["id"],
                                   inclusive=body.include_last_user)
+    runs.bump_generation(conv_id)
     return {
         "ok": True,
         "removed_user_content": last_user["content"] if body.include_last_user else None,
