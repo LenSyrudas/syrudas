@@ -19,16 +19,20 @@ Requirements: Windows, Python 3.13 (`py` launcher), Node.js 20+, and a model bac
 
 ```powershell
 .\setup.ps1     # venv + pip + npm install + frontend build
-.\run.ps1       # http://127.0.0.1:8040
+.\run.ps1       # server only, use in a browser at http://127.0.0.1:8040
 ```
 
-### One-click exe
+### Desktop app (one-click exe)
 
-`.\build_exe.ps1` builds **SyrudasAI.exe** (PyInstaller onefile, ~20 MB) into the project
-root. Double-click it: the server starts and your browser opens automatically; if Syrudas
-is already running it just opens the UI. The exe keeps its state (`data\`, `plugins\`) in
-the folder it lives in, so you can copy it anywhere for a fresh portable instance —
-next to this repo it shares the dev database.
+`.\build_exe.ps1` builds **SyrudasAI.exe** (PyInstaller onefile, ~27 MB) into the project
+root. Double-click it and Syrudas opens as a native desktop window (WebView2 via
+pywebview — built into Windows 11, no browser needed); closing the window stops the
+server. If an instance is already running, it just opens a window onto it, and if the
+native webview is unavailable it falls back to your default browser. The exe keeps its
+state (`data\`, `plugins\`) in the folder it lives in, so you can copy it anywhere for a
+fresh portable instance — next to this repo it shares the dev database. Windowed logs go
+to `data\syrudas.log`. Dev equivalents: `python desktop.py` (window) or `.\run.ps1`
+(browser).
 
 Then in the UI: **Settings → Model providers → Add provider**, pick *OpenAI-compatible*,
 set Base URL to `http://localhost:11434/v1` (Ollama). Pick a model in the top bar and chat.

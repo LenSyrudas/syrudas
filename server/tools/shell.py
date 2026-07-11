@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from typing import Any
 
 from ..config import DEFAULT_WORKSPACE
@@ -37,6 +38,8 @@ class ShellTool(Tool):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(DEFAULT_WORKSPACE),
+                # no console flash when the parent is the windowed desktop app
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=TIMEOUT_S)
         except asyncio.TimeoutError:
