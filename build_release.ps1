@@ -23,6 +23,9 @@ Copy-Item "packaging\README.txt" $stage
 if (Test-Path "docs\Syrudas-AI-Whitepaper.pdf") {
     Copy-Item "docs\Syrudas-AI-Whitepaper.pdf" $stage
 }
+if (Test-Path "docs\SETUP.md") {
+    Copy-Item "docs\SETUP.md" (Join-Path $stage "SETUP.txt")
+}
 
 New-Item -ItemType Directory "release" -Force | Out-Null
 $zip = "release\SyrudasAI-v$version-win64.zip"
