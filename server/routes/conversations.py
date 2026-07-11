@@ -1,4 +1,8 @@
+import json
+import re
+
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from .. import db
@@ -43,3 +47,60 @@ async def patch_conversation(conv_id: str, patch: ConversationPatch):
 async def delete_conversation(conv_id: str):
     await db.delete_conversation(conv_id)
     return {"ok": True}
+
+
+class RewindIn(BaseModel):
+    # regenerate: drop everything AFTER the last user message (keep it)
+    # edit: drop the last user message too and hand its content back
+    include_last_user: bool = False
+
+
+@router.post("/conversations/{conv_id}/rewind")
+async def rewind_conversation(conv_id: str, body: RewindIn):
+    if not await db.get_conversation(conv_id):
+        raise HTTPException(404, "Conversation not found")
+    last_user = await db.get_last_user_message(conv_id)
+    if not last_user:
+        raise HTTPException(400, "Conversation has no user message to rewind to")
+    await db.delete_messages_from(conv_id, last_user["id"],
+                                  inclusive=body.include_last_user)
+    return {
+        "ok": True,
+        "removed_user_content": last_user["content"] if body.include_last_user else None,
+    }
+
+
+@router.get("/conversations/{conv_id}/export")
+async def export_conversation(conv_id: str):
+    conv = await db.get_conversation(conv_id)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    messages = await db.list_messages(conv_id)
+
+    lines = [
+        f"# {conv['title']}",
+        "",
+        f"*Exported from Syrudas AI · model `{conv['model']}` · created {conv['created_at'][:10]}*",
+        "",
+    ]
+    role_names = {"user": "You", "assistant": "Assistant", "tool": "Tool result",
+                  "system": "System"}
+    for m in messages:
+        lines.append(f"## {role_names.get(m['role'], m['role'])}")
+        lines.append("")
+        if m["content"]:
+            lines.append(m["content"])
+            lines.append("")
+        for tc in m["tool_calls"] or []:
+            lines.append(f"**Tool call:** `{tc['name']}`")
+            lines.append("```json")
+            lines.append(json.dumps(tc.get("arguments", {}), indent=2))
+            lines.append("```")
+            lines.append("")
+
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", conv["title"]).strip("-.")[:60] or "conversation"
+    return Response(
+        content="\n".join(lines),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{slug}.md"'},
+    )

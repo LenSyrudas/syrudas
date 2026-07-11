@@ -63,6 +63,39 @@ export const getConversation = (id: string) =>
 export const deleteConversation = (id: string) =>
   fetch(`/api/conversations/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r))
 
+export const patchConversation = (id: string, patch: Partial<Conversation>) =>
+  fetch(`/api/conversations/${id}`, {
+    method: 'PATCH',
+    headers: jsonHeaders,
+    body: JSON.stringify(patch),
+  }).then((r) => json<Conversation>(r))
+
+export const rewindConversation = (id: string, includeLastUser: boolean) =>
+  fetch(`/api/conversations/${id}/rewind`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ include_last_user: includeLastUser }),
+  }).then((r) => json<{ ok: boolean; removed_user_content: string | null }>(r))
+
+export const exportConversationUrl = (id: string) => `/api/conversations/${id}/export`
+
+// --- prompt presets ---
+
+export interface PromptPreset {
+  name: string
+  prompt: string
+}
+
+export const getPromptPresets = () =>
+  fetch('/api/settings/prompt-presets').then((r) => json<{ presets: PromptPreset[] }>(r))
+
+export const setPromptPresets = (presets: PromptPreset[]) =>
+  fetch('/api/settings/prompt-presets', {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ presets }),
+  }).then((r) => json<{ presets: PromptPreset[] }>(r))
+
 // --- providers ---
 
 export const listProviderTypes = () =>
@@ -134,12 +167,22 @@ export const resolveApproval = (approvalId: string, approve: boolean) =>
 
 // --- chat streaming ---
 
+export interface GenParams {
+  temperature?: number
+  max_tokens?: number
+}
+
 export interface ChatRequest {
   conversation_id?: string
   provider_id: string
   model: string
-  message: string
+  /** omit to continue/regenerate from existing history */
+  message?: string
   agent_mode: boolean
+  system_prompt?: string
+  /** server-side rewind-then-respond with rollback on empty failure */
+  regenerate?: boolean
+  params?: GenParams
 }
 
 export async function streamChat(

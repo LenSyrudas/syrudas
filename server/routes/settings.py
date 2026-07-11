@@ -46,3 +46,37 @@ async def write_agent_folders(body: AgentFoldersIn):
             cleaned.append(f)
     await db.set_setting(AGENT_FOLDERS_KEY, json.dumps(cleaned))
     return await read_agent_folders()
+
+
+PROMPT_PRESETS_KEY = "prompt_presets"
+
+
+class PromptPreset(BaseModel):
+    name: str
+    prompt: str
+
+
+class PromptPresetsIn(BaseModel):
+    presets: list[PromptPreset] = Field(default_factory=list)
+
+
+@router.get("/settings/prompt-presets")
+async def read_prompt_presets():
+    try:
+        raw = json.loads(await db.get_setting(PROMPT_PRESETS_KEY, "[]"))
+    except json.JSONDecodeError:
+        raw = []
+    presets = [p for p in raw if isinstance(p, dict) and p.get("name")]
+    return {"presets": presets}
+
+
+@router.put("/settings/prompt-presets")
+async def write_prompt_presets(body: PromptPresetsIn):
+    seen: dict[str, str] = {}
+    for p in body.presets:
+        name = p.name.strip()[:60]
+        if name:
+            seen[name] = p.prompt
+    presets = [{"name": n, "prompt": pr} for n, pr in seen.items()]
+    await db.set_setting(PROMPT_PRESETS_KEY, json.dumps(presets))
+    return {"presets": presets}

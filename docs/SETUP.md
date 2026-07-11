@@ -116,6 +116,21 @@ model namespaced by server name (e.g. `filesystem_list_directory`). The
 first `npx` run downloads the package, so the first agent start after adding
 one can take a minute.
 
+## 5½. Chat features worth knowing
+
+- **🎭 System prompt / persona** (topbar): sets the assistant's role for the
+  current conversation; save frequently-used ones as presets. New chats start
+  with whatever the panel holds.
+- **🎛 Tuning** (topbar): temperature and max-tokens for your requests; leave
+  untouched for backend defaults.
+- **↻ Regenerate** (under the last reply) and the **✎ pencil** on your last
+  message (hover): retry a weak answer, or pull your message back into the
+  composer to fix and resend. If the backend fails mid-regenerate, the old
+  reply is restored.
+- **⤓ Export** (topbar): download the conversation as Markdown.
+- Long conversations are automatically trimmed to fit the model: the system
+  prompt and newest messages always survive; the oldest turns fall off first.
+
 ## 6. File attachments
 
 In any chat, click **📎** or drag files onto the message box. Supported:

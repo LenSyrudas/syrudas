@@ -6,10 +6,12 @@ Event vocabulary sent to the frontend:
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import AsyncIterator, Optional
 
 from . import db
+from .config import MAX_HISTORY_CHARS
 from .providers.base import ModelProvider
 from .schemas import GenParams, Message, ToolCall
 
@@ -26,7 +28,49 @@ async def build_history(conv: dict) -> list[Message]:
             role=m["role"], content=m["content"] or "",
             tool_calls=tool_calls, tool_call_id=m["tool_call_id"],
         ))
-    return messages
+    return trim_history(messages)
+
+
+def _msg_chars(m: Message) -> int:
+    n = len(m.content or "")
+    for tc in m.tool_calls or []:
+        n += len(tc.name) + len(json.dumps(tc.arguments))
+    return n
+
+
+def trim_history(messages: list[Message], budget: int = MAX_HISTORY_CHARS) -> list[Message]:
+    """Keep the system prompt plus as many of the newest messages as fit.
+
+    Without this, long conversations overflow the model's context and the
+    backend silently drops the OLDEST content - including the system prompt.
+    The newest message is always kept even if it alone exceeds the budget.
+    """
+    if not messages:
+        return messages
+    system = messages[:1] if messages[0].role == "system" else []
+    rest = messages[len(system):]
+
+    kept: list[Message] = []
+    total = sum(_msg_chars(m) for m in system)
+    for m in reversed(rest):
+        size = _msg_chars(m)
+        if kept and total + size > budget:
+            break
+        kept.append(m)
+        total += size
+    kept.reverse()
+    # a tool result whose assistant tool_call was trimmed away confuses
+    # backends - drop stranded leading tool messages
+    while kept and kept[0].role == "tool":
+        kept.pop(0)
+    if not kept:
+        # everything kept was stranded tool output: fall back to the newest
+        # non-tool message rather than resurrecting an orphan tool result
+        for m in reversed(rest):
+            if m.role != "tool":
+                kept = [m]
+                break
+    return system + kept
 
 
 async def stream_plain_chat(

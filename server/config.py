@@ -2,7 +2,7 @@
 import sys
 from pathlib import Path
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 
 FROZEN = bool(getattr(sys, "frozen", False))
 
@@ -25,6 +25,10 @@ HOST = "127.0.0.1"
 PORT = 8040
 
 MAX_AGENT_STEPS = 15
+
+# rough char budget for history sent to the model (~6k tokens); the newest
+# messages always win, the system prompt is always kept
+MAX_HISTORY_CHARS = 24_000
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_WORKSPACE.mkdir(parents=True, exist_ok=True)

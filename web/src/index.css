@@ -159,6 +159,144 @@ body {
   accent-color: var(--accent);
 }
 
+.topbar-spacer {
+  flex: 1;
+}
+
+.btn-compact {
+  padding: 6px 10px;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.active-control {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---------- popovers (tuning) ---------- */
+
+.popover-anchor {
+  position: relative;
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.popover-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.popover-row input[type='range'] {
+  accent-color: var(--accent);
+  padding: 0;
+}
+
+/* ---------- persona panel ---------- */
+
+.persona-panel {
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.persona-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.persona-head .muted {
+  flex: 1;
+  font-size: 12px;
+}
+
+.persona-panel textarea {
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: var(--font);
+  font-size: 13.5px;
+  resize: vertical;
+  outline: none;
+}
+
+.persona-panel textarea:focus {
+  border-color: var(--accent);
+}
+
+.persona-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.persona-presets input {
+  max-width: 180px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.preset-apply {
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+}
+
+.preset-apply:hover {
+  color: var(--accent);
+}
+
+/* ---------- thread actions (regenerate, edit) ---------- */
+
+.thread-actions {
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.msg.user {
+  position: relative;
+}
+
+.msg-action {
+  visibility: hidden;
+  align-self: center;
+  font-size: 14px;
+  margin-right: 4px;
+  order: -1;
+}
+
+.msg.user:hover .msg-action {
+  visibility: visible;
+}
+
 /* ---------- chat ---------- */
 
 .chat {

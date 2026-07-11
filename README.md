@@ -4,7 +4,9 @@ A self-hosted AI workspace in the spirit of [Odysseus](https://github.com/pewdie
 built around one idea: **any model backend plugs in through a small provider API**.
 
 - **Chat** — streaming responses, markdown + syntax highlighting, conversation history (SQLite),
-  file attachments (drag & drop or 📎: code, text, CSV, JSON, logs, PDFs)
+  file attachments (drag & drop or 📎: code, text, CSV, JSON, logs, PDFs), regenerate/edit
+  last message, per-conversation system prompts with saved presets, temperature/max-token
+  controls, markdown export, automatic context-window trimming
 - **Any model** — provider *types* are Python plugins; provider *instances* are configured in the UI.
   The builtin OpenAI-compatible adapter covers Ollama, LM Studio, llama.cpp server, vLLM,
   OpenRouter, and OpenAI itself

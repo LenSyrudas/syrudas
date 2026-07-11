@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { getConversation, streamChat, uploadAttachment } from '../api'
-import type { Attachment } from '../api'
-import type { StreamEvent, ToolCall } from '../types'
+import { getConversation, rewindConversation, streamChat, uploadAttachment } from '../api'
+import type { Attachment, ChatRequest, GenParams } from '../api'
+import type { Conversation, StreamEvent, ToolCall } from '../types'
 import Markdown from './Markdown'
 import ToolCallCard from './ToolCallCard'
 
-const FILE_BLOCK = /<file name="([^"]*)">\n?([\s\S]*?)<\/file>/g
+// consumes the \n on BOTH sides that fileBlock() adds, or every edit/resend
+// cycle would grow the attachment by one newline
+const FILE_BLOCK = /<file name="([^"]*)">\n?([\s\S]*?)\n?<\/file>/g
 
 /** Split a stored user message into typed text and attached-file blocks. */
 function parseUserContent(content: string): { text: string; files: { name: string; content: string }[] } {
@@ -42,8 +44,32 @@ interface Props {
   providerId: string
   model: string
   agentMode: boolean
+  genParams: GenParams
+  systemPrompt: string
   onConversationCreated: (id: string) => void
+  onConversationLoaded: (conv: Conversation) => void
   onStreamEnd: () => void
+}
+
+function itemsFromMessages(conv: Conversation): ChatItem[] {
+  const loaded: ChatItem[] = []
+  for (const m of conv.messages ?? []) {
+    if (m.role === 'user') {
+      loaded.push({ kind: 'user', content: m.content })
+    } else if (m.role === 'assistant') {
+      if (m.content) loaded.push({ kind: 'assistant', content: m.content })
+      for (const tc of m.tool_calls ?? []) {
+        loaded.push({ kind: 'tool', call: tc, status: 'done' })
+      }
+    } else if (m.role === 'tool') {
+      const tool = loaded.find(
+        (it): it is ToolItem =>
+          it.kind === 'tool' && it.call.id === m.tool_call_id && it.result === undefined,
+      )
+      if (tool) tool.result = m.content
+    }
+  }
+  return loaded
 }
 
 export default function ChatView({
@@ -51,7 +77,10 @@ export default function ChatView({
   providerId,
   model,
   agentMode,
+  genParams,
+  systemPrompt,
   onConversationCreated,
+  onConversationLoaded,
   onStreamEnd,
 }: Props) {
   const [items, setItems] = useState<ChatItem[]>([])
@@ -63,10 +92,19 @@ export default function ChatView({
     return prompt ?? ''
   })
   const [streaming, setStreaming] = useState(false)
+  // busy covers rewind round-trips before streaming starts; busyRef is the
+  // SYNCHRONOUS re-entrancy guard (React state lags awaits, so a double-click
+  // would otherwise rewind twice and destroy an extra user turn)
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   const [pending, setPending] = useState<Attachment[]>([])
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
-  const convIdRef = useRef<string | null>(conversationId)
+  // null until this instance owns a conversation: set by the load effect for
+  // existing chats, or by the meta event when a send creates one mid-stream.
+  // Must NOT be seeded from the prop, or the load effect's "already live"
+  // guard skips loading when an existing conversation is opened.
+  const convIdRef = useRef<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -85,33 +123,20 @@ export default function ChatView({
     setUploading(false)
   }
 
+  async function loadConversation(id: string) {
+    const conv = await getConversation(id)
+    setItems(itemsFromMessages(conv))
+    onConversationLoaded(conv)
+    return conv
+  }
+
   useEffect(() => {
     if (!conversationId) return
     // If this component created the conversation mid-stream, items are already live
     if (convIdRef.current === conversationId) return
     convIdRef.current = conversationId
-    getConversation(conversationId)
-      .then((conv) => {
-        const loaded: ChatItem[] = []
-        for (const m of conv.messages ?? []) {
-          if (m.role === 'user') {
-            loaded.push({ kind: 'user', content: m.content })
-          } else if (m.role === 'assistant') {
-            if (m.content) loaded.push({ kind: 'assistant', content: m.content })
-            for (const tc of m.tool_calls ?? []) {
-              loaded.push({ kind: 'tool', call: tc, status: 'done' })
-            }
-          } else if (m.role === 'tool') {
-            const tool = loaded.find(
-              (it): it is ToolItem =>
-                it.kind === 'tool' && it.call.id === m.tool_call_id && it.result === undefined,
-            )
-            if (tool) tool.result = m.content
-          }
-        }
-        setItems(loaded)
-      })
-      .catch(console.error)
+    loadConversation(conversationId).catch(console.error)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId])
 
   useEffect(() => {
@@ -192,28 +217,19 @@ export default function ChatView({
     })
   }
 
-  async function send() {
-    const typed = input.trim()
-    if ((!typed && pending.length === 0) || streaming || uploading || !providerId || !model) return
-    const message = [typed, ...pending.map(fileBlock)].filter(Boolean).join('\n\n')
-    setInput('')
-    setPending([])
-    setItems((prev) => [...prev, { kind: 'user', content: message }])
+  function cleanParams(): GenParams | undefined {
+    const params: GenParams = {}
+    if (genParams.temperature !== undefined) params.temperature = genParams.temperature
+    if (genParams.max_tokens !== undefined) params.max_tokens = genParams.max_tokens
+    return Object.keys(params).length ? params : undefined
+  }
+
+  async function runStream(req: ChatRequest) {
     setStreaming(true)
     const controller = new AbortController()
     abortRef.current = controller
     try {
-      await streamChat(
-        {
-          conversation_id: convIdRef.current ?? undefined,
-          provider_id: providerId,
-          model,
-          message,
-          agent_mode: agentMode,
-        },
-        handleEvent,
-        controller.signal,
-      )
+      await streamChat(req, handleEvent, controller.signal)
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
         setItems((prev) => [...prev, { kind: 'error', content: String(e) }])
@@ -222,6 +238,78 @@ export default function ChatView({
       setStreaming(false)
       abortRef.current = null
       onStreamEnd()
+    }
+  }
+
+  async function send() {
+    const typed = input.trim()
+    if ((!typed && pending.length === 0) || streaming || busyRef.current || uploading || !providerId || !model) return
+    const message = [typed, ...pending.map(fileBlock)].filter(Boolean).join('\n\n')
+    setInput('')
+    setPending([])
+    setItems((prev) => [...prev, { kind: 'user', content: message }])
+    await runStream({
+      conversation_id: convIdRef.current ?? undefined,
+      provider_id: providerId,
+      model,
+      message,
+      agent_mode: agentMode,
+      // creation only: existing conversations are edited via PATCH, so a
+      // stale tab can't clobber a prompt changed elsewhere
+      system_prompt: convIdRef.current ? undefined : systemPrompt || undefined,
+      params: cleanParams(),
+    })
+  }
+
+  async function regenerate() {
+    const convId = convIdRef.current
+    if (busyRef.current || !convId || streaming || !providerId || !model) return
+    busyRef.current = true
+    setBusy(true)
+    // optimistic: drop everything after the last user message; the server
+    // does the authoritative rewind inside the same request and restores it
+    // if the provider fails before producing anything
+    setItems((prev) => {
+      const lastUser = prev.map((it) => it.kind).lastIndexOf('user')
+      return lastUser >= 0 ? prev.slice(0, lastUser + 1) : prev
+    })
+    try {
+      await runStream({
+        conversation_id: convId,
+        provider_id: providerId,
+        model,
+        agent_mode: agentMode,
+        regenerate: true,
+        params: cleanParams(),
+      })
+      await loadConversation(convId) // resync (picks up server-side rollback too)
+    } catch (e) {
+      setItems((prev) => [...prev, { kind: 'error', content: String(e) }])
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }
+
+  async function editLast() {
+    const convId = convIdRef.current
+    if (busyRef.current || !convId || streaming || !canSend) return
+    busyRef.current = true
+    setBusy(true)
+    try {
+      const res = await rewindConversation(convId, true)
+      await loadConversation(convId)
+      const { text, files } = parseUserContent(res.removed_user_content ?? '')
+      setInput(text)
+      setPending(files.map((f) => ({
+        name: f.name, content: f.content, chars: f.content.length, truncated: false,
+      })))
+      textareaRef.current?.focus()
+    } catch (e) {
+      setItems((prev) => [...prev, { kind: 'error', content: String(e) }])
+    } finally {
+      busyRef.current = false
+      setBusy(false)
     }
   }
 
@@ -236,6 +324,9 @@ export default function ChatView({
   }
 
   const canSend = Boolean(providerId && model)
+  const lastUserIndex = items.map((it) => it.kind).lastIndexOf('user')
+  const canRewind =
+    Boolean(convIdRef.current) && !streaming && !busy && canSend && lastUserIndex >= 0
 
   return (
     <div className="chat">
@@ -272,6 +363,15 @@ export default function ChatView({
                     )}
                     {text}
                   </div>
+                  {canRewind && i === lastUserIndex && (
+                    <button
+                      className="icon-btn msg-action"
+                      title="Edit this message (removes the replies after it)"
+                      onClick={editLast}
+                    >
+                      ✎
+                    </button>
+                  )}
                 </div>
               )
             }
@@ -302,6 +402,13 @@ export default function ChatView({
         })}
         {streaming && items[items.length - 1]?.kind === 'user' && (
           <div className="msg assistant thinking">…</div>
+        )}
+        {canRewind && canSend && (
+          <div className="thread-actions">
+            <button className="btn btn-compact" title="Delete the last reply and generate a new one" onClick={regenerate}>
+              ↻ Regenerate
+            </button>
+          </div>
         )}
       </div>
       <div

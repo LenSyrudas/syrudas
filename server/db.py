@@ -164,6 +164,68 @@ async def list_messages(conversation_id: str) -> list[dict]:
     return out
 
 
+async def get_last_user_message(conversation_id: str) -> Optional[dict]:
+    db = await get_db()
+    rows = await db.execute_fetchall(
+        "SELECT * FROM messages WHERE conversation_id = ? AND role = 'user'"
+        " ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        (conversation_id,),
+    )
+    return dict(rows[0]) if rows else None
+
+
+async def get_messages_after(conversation_id: str, message_id: str) -> list[dict]:
+    """Raw message rows (tool_calls still JSON text) after the given message."""
+    db = await get_db()
+    rows = await db.execute_fetchall(
+        "SELECT rowid FROM messages WHERE id = ? AND conversation_id = ?",
+        (message_id, conversation_id),
+    )
+    if not rows:
+        return []
+    out = await db.execute_fetchall(
+        "SELECT * FROM messages WHERE conversation_id = ? AND rowid > ? ORDER BY rowid",
+        (conversation_id, rows[0]["rowid"]),
+    )
+    return [dict(r) for r in out]
+
+
+async def restore_messages(rows: list[dict]) -> None:
+    """Reinsert raw rows captured by get_messages_after (regenerate rollback)."""
+    if not rows:
+        return
+    db = await get_db()
+    for r in rows:
+        await db.execute(
+            "INSERT OR IGNORE INTO messages (id,conversation_id,role,content,tool_calls,tool_call_id,created_at)"
+            " VALUES (:id,:conversation_id,:role,:content,:tool_calls,:tool_call_id,:created_at)",
+            r,
+        )
+    await db.commit()
+
+
+async def delete_messages_from(conversation_id: str, message_id: str,
+                               inclusive: bool) -> int:
+    """Delete a message (optionally) and everything after it in the conversation."""
+    db = await get_db()
+    rows = await db.execute_fetchall(
+        "SELECT rowid FROM messages WHERE id = ? AND conversation_id = ?",
+        (message_id, conversation_id),
+    )
+    if not rows:
+        return 0
+    pivot = rows[0]["rowid"]
+    op = ">=" if inclusive else ">"
+    cursor = await db.execute(
+        f"DELETE FROM messages WHERE conversation_id = ? AND rowid {op} ?",  # noqa: S608
+        (conversation_id, pivot),
+    )
+    await db.execute("UPDATE conversations SET updated_at = ? WHERE id = ?",
+                     (now(), conversation_id))
+    await db.commit()
+    return cursor.rowcount
+
+
 # --- provider instances ---
 
 async def create_provider_instance(type_id: str, name: str, config: dict) -> dict:

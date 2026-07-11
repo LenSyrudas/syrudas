@@ -1,10 +1,20 @@
-import { useCallback, useEffect, useState } from 'react'
-import { listConversations, listProviders } from './api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { exportConversationUrl, listConversations, listProviders, patchConversation } from './api'
+import type { GenParams } from './api'
+import { PersonaPanel, TuningPopover } from './components/ChatControls'
 import ChatView from './components/ChatView'
 import ModelPicker from './components/ModelPicker'
 import SettingsView from './components/SettingsView'
 import Sidebar from './components/Sidebar'
 import type { Conversation, ProviderInstance } from './types'
+
+function loadGenParams(): GenParams {
+  try {
+    return JSON.parse(localStorage.getItem('syrudas.genParams') ?? '{}') as GenParams
+  } catch {
+    return {}
+  }
+}
 
 function App() {
   const [view, setView] = useState<'chat' | 'settings'>('chat')
@@ -21,6 +31,9 @@ function App() {
   const [agentMode, setAgentMode] = useState(
     () => localStorage.getItem('syrudas.agentMode') === '1',
   )
+  const [genParams, setGenParams] = useState<GenParams>(loadGenParams)
+  const [systemPrompt, setSystemPrompt] = useState('')
+  const [personaOpen, setPersonaOpen] = useState(false)
 
   const refreshConversations = useCallback(() => {
     listConversations().then(setConversations).catch(console.error)
@@ -51,6 +64,22 @@ function App() {
   useEffect(() => {
     localStorage.setItem('syrudas.agentMode', agentMode ? '1' : '0')
   }, [agentMode])
+  useEffect(() => {
+    localStorage.setItem('syrudas.genParams', JSON.stringify(genParams))
+  }, [genParams])
+
+  const patchTimer = useRef<number | null>(null)
+  function changeSystemPrompt(prompt: string) {
+    setSystemPrompt(prompt)
+    // debounce the PATCH: this fires per keystroke, and each write also bumps
+    // the conversation's updated_at (sidebar order)
+    if (!activeId) return // new chat: the prompt travels with the first message
+    const id = activeId
+    if (patchTimer.current) window.clearTimeout(patchTimer.current)
+    patchTimer.current = window.setTimeout(() => {
+      patchConversation(id, { system_prompt: prompt }).catch(console.error)
+    }, 600)
+  }
 
   return (
     <div className="app">
@@ -65,6 +94,7 @@ function App() {
         onNew={() => {
           setActiveId(null)
           setChatKey(`new-${Date.now()}`)
+          setSystemPrompt('')
           setView('chat')
         }}
         onDeleted={(id) => {
@@ -95,17 +125,46 @@ function App() {
                 />
                 <span>Agent mode</span>
               </label>
+              <div className="topbar-spacer" />
+              <TuningPopover params={genParams} onChange={setGenParams} />
+              <button
+                className={`btn btn-compact ${systemPrompt ? 'active-control' : ''}`}
+                title="System prompt / persona"
+                onClick={() => setPersonaOpen(!personaOpen)}
+              >
+                🎭{systemPrompt ? '•' : ''}
+              </button>
+              {activeId && (
+                <a
+                  className="btn btn-compact"
+                  title="Export conversation as Markdown"
+                  href={exportConversationUrl(activeId)}
+                  download
+                >
+                  ⤓
+                </a>
+              )}
             </header>
+            {personaOpen && (
+              <PersonaPanel
+                systemPrompt={systemPrompt}
+                onChange={changeSystemPrompt}
+                onClose={() => setPersonaOpen(false)}
+              />
+            )}
             <ChatView
               key={chatKey}
               conversationId={activeId}
               providerId={providerId}
               model={model}
               agentMode={agentMode}
+              genParams={genParams}
+              systemPrompt={systemPrompt}
               onConversationCreated={(id) => {
                 setActiveId(id)
                 refreshConversations()
               }}
+              onConversationLoaded={(conv) => setSystemPrompt(conv.system_prompt ?? '')}
               onStreamEnd={refreshConversations}
             />
           </>
