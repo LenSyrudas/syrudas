@@ -16,6 +16,11 @@ built around one idea: **any model backend plugs in through a small provider API
   Settings → Agent file access), web fetch, web search, and **persistent memory** —
   durable facts saved across conversations, reviewable and deletable under
   Settings → Agent memory
+- **Knowledge (local RAG)** — index files and folders (text, code, PDFs) into a local
+  embedding index under Settings → Knowledge; the agent's `knowledge_search` tool quotes
+  from them, so you can chat with documents far bigger than the context window. Works
+  with any provider that serves an embedding model (e.g. Ollama/LM Studio with
+  `nomic-embed-text`); everything stays in the local SQLite database
 - **MCP** — register stdio MCP servers in Settings; their tools merge into agent mode
 - Local-first: FastAPI + React, SQLite, no telemetry, keys never leave your machine
 

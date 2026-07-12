@@ -91,12 +91,13 @@ async def stream_agent_chat(
             )
     else:
         prompt = conv["system_prompt"]
-    # memories ride on the request-local prompt only - never persisted into
-    # the conversation's stored system_prompt
+    # memories and the knowledge-index note ride on the request-local prompt
+    # only - never persisted into the conversation's stored system_prompt
+    from .tools.knowledge import knowledge_prompt_block
     from .tools.memory import memory_prompt_block
-    memories = await memory_prompt_block()
-    if memories:
-        prompt += "\n\n" + memories
+    for block in (await memory_prompt_block(), await knowledge_prompt_block()):
+        if block:
+            prompt += "\n\n" + block
     conv = {**conv, "system_prompt": prompt}
     history = await build_history(conv)
 

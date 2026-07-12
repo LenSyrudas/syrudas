@@ -113,6 +113,66 @@ export const deleteMemory = (id: string) =>
 export const clearMemories = () =>
   fetch('/api/memories', { method: 'DELETE' }).then((r) => json<{ deleted: number }>(r))
 
+// --- knowledge (local RAG) ---
+
+export interface KnowledgeSource {
+  id: string
+  path: string
+  kind: string
+  chars: number
+  chunk_count: number
+  indexed_at: string
+}
+
+export interface KnowledgeInfo {
+  embedding: { provider_id: string; model: string } | null
+  sources: KnowledgeSource[]
+  chunks: number
+}
+
+export interface KnowledgeIndexResult {
+  indexed: { path: string; chunks: number }[]
+  skipped: string[]
+}
+
+export interface KnowledgeHit {
+  path: string
+  seq: number
+  score: number
+  content: string
+}
+
+export const getKnowledge = () => fetch('/api/knowledge').then((r) => json<KnowledgeInfo>(r))
+
+export const setKnowledgeEmbedding = (providerId: string, model: string) =>
+  fetch('/api/knowledge/embedding', {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ provider_id: providerId, model }),
+  }).then((r) => json<{ ok: boolean; dim: number; cleared_sources: number }>(r))
+
+export const indexKnowledgePath = (path: string) =>
+  fetch('/api/knowledge/index', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ path }),
+  }).then((r) => json<KnowledgeIndexResult>(r))
+
+export const searchKnowledge = (query: string) =>
+  fetch('/api/knowledge/search', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ query }),
+  }).then((r) => json<{ results: KnowledgeHit[] }>(r))
+
+export const deleteKnowledgeSource = (id: string) =>
+  fetch(`/api/knowledge/sources/${id}`, { method: 'DELETE' }).then((r) =>
+    json<{ ok: boolean }>(r),
+  )
+
+export const clearKnowledge = () =>
+  fetch('/api/knowledge', { method: 'DELETE' }).then((r) => json<{ deleted: number }>(r))
+
 // --- prompt presets ---
 
 export interface PromptPreset {

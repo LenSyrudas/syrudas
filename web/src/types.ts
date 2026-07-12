@@ -61,6 +61,7 @@ export interface ProviderType {
   type_id: string
   display_name: string
   config_fields: ConfigField[]
+  supports_embeddings?: boolean
 }
 
 export interface ProviderInstance {

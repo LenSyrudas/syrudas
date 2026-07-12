@@ -59,6 +59,22 @@ CREATE TABLE IF NOT EXISTS memories (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS knowledge_sources (
+    id TEXT PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL DEFAULT 'file',
+    chars INTEGER NOT NULL,
+    chunk_count INTEGER NOT NULL,
+    indexed_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES knowledge_sources(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    embedding BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chunks_source ON knowledge_chunks(source_id);
 """
 
 
@@ -388,6 +404,65 @@ async def delete_memory(mem_id: str) -> bool:
 async def clear_memories() -> int:
     db = await get_db()
     cursor = await db.execute("DELETE FROM memories")
+    await db.commit()
+    return cursor.rowcount
+
+
+# --- knowledge (local RAG) ---
+
+async def replace_knowledge_source(path: str, kind: str, chars: int,
+                                   chunks: list[tuple[str, bytes]]) -> dict:
+    """Insert or reindex a source: old chunks are dropped (cascade), new ones
+    written in one transaction so a failed reindex can't leave half a file."""
+    db = await get_db()
+    await db.execute("DELETE FROM knowledge_sources WHERE path = ?", (path,))
+    src = {"id": new_id()[:8], "path": path, "kind": kind, "chars": chars,
+           "chunk_count": len(chunks), "indexed_at": now()}
+    await db.execute(
+        "INSERT INTO knowledge_sources (id,path,kind,chars,chunk_count,indexed_at)"
+        " VALUES (:id,:path,:kind,:chars,:chunk_count,:indexed_at)", src)
+    await db.executemany(
+        "INSERT INTO knowledge_chunks (id,source_id,seq,content,embedding)"
+        " VALUES (?,?,?,?,?)",
+        [(new_id(), src["id"], seq, content, embedding)
+         for seq, (content, embedding) in enumerate(chunks)])
+    await db.commit()
+    return src
+
+
+async def list_knowledge_sources() -> list[dict]:
+    db = await get_db()
+    rows = await db.execute_fetchall(
+        "SELECT * FROM knowledge_sources ORDER BY indexed_at DESC, rowid DESC")
+    return [dict(r) for r in rows]
+
+
+async def count_knowledge_chunks() -> int:
+    db = await get_db()
+    rows = await db.execute_fetchall("SELECT COUNT(*) AS n FROM knowledge_chunks")
+    return rows[0]["n"]
+
+
+async def all_knowledge_chunks() -> list[dict]:
+    """Every chunk with its source path, for brute-force similarity search."""
+    db = await get_db()
+    rows = await db.execute_fetchall(
+        "SELECT c.id, c.source_id, c.seq, c.content, c.embedding, s.path"
+        " FROM knowledge_chunks c JOIN knowledge_sources s ON s.id = c.source_id")
+    return [dict(r) for r in rows]
+
+
+async def delete_knowledge_source(source_id: str) -> bool:
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM knowledge_sources WHERE id = ?", (source_id,))
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def clear_knowledge() -> int:
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM knowledge_sources")
+    await db.execute("DELETE FROM knowledge_chunks")
     await db.commit()
     return cursor.rowcount
 

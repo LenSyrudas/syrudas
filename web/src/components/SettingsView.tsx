@@ -2,22 +2,28 @@ import { useEffect, useState } from 'react'
 import {
   addMemory,
   checkProvider,
+  clearKnowledge,
   clearMemories,
   createMcpServer,
   createProvider,
+  deleteKnowledgeSource,
   deleteMcpServer,
   deleteMemory,
   deleteProvider,
   getAgentFolders,
+  getKnowledge,
+  indexKnowledgePath,
   listMcpServers,
   listMemories,
   listProviderTypes,
   listProviders,
+  searchKnowledge,
   setAgentFolders,
+  setKnowledgeEmbedding,
   setMcpServerEnabled,
   updateProvider,
 } from '../api'
-import type { AgentFolders, MemoryEntry } from '../api'
+import type { AgentFolders, KnowledgeInfo, MemoryEntry } from '../api'
 import type { McpServer, ProviderInstance, ProviderType } from '../types'
 
 export default function SettingsView({ onProvidersChanged }: { onProvidersChanged: () => void }) {
@@ -35,6 +41,7 @@ export default function SettingsView({ onProvidersChanged }: { onProvidersChange
       <ProvidersSection onChanged={onProvidersChanged} />
       <McpSection />
       <AgentAccessSection />
+      <KnowledgeSection />
       <MemorySection />
       <footer className="settings-footer">
         👁 Syrudas AI{version ? ` v${version}` : ''} · local-first, no telemetry
@@ -286,6 +293,216 @@ function AgentAccessSection() {
           Grant access
         </button>
       </div>
+      {error && <div className="form-error">⚠ {error}</div>}
+    </section>
+  )
+}
+
+function KnowledgeSection() {
+  const [info, setInfo] = useState<KnowledgeInfo | null>(null)
+  const [providers, setProviders] = useState<ProviderInstance[]>([])
+  const [embedTypes, setEmbedTypes] = useState<Set<string>>(new Set())
+  const [providerId, setProviderId] = useState('')
+  const [model, setModel] = useState('')
+  const [newPath, setNewPath] = useState('')
+  const [query, setQuery] = useState('')
+  const [hits, setHits] = useState<{ path: string; content: string }[] | null>(null)
+  const [status, setStatus] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const refresh = () =>
+    getKnowledge()
+      .then((k) => {
+        setInfo(k)
+        if (k.embedding) {
+          setProviderId((p) => p || k.embedding!.provider_id)
+          setModel((m) => m || k.embedding!.model)
+        }
+      })
+      .catch(console.error)
+
+  useEffect(() => {
+    refresh()
+    listProviders().then(setProviders).catch(console.error)
+    listProviderTypes()
+      .then((types) =>
+        setEmbedTypes(new Set(types.filter((t) => t.supports_embeddings).map((t) => t.type_id))),
+      )
+      .catch(console.error)
+  }, [])
+
+  async function run(action: () => Promise<string>) {
+    setBusy(true)
+    try {
+      setStatus(await action())
+      setError('')
+      refresh()
+      return true
+    } catch (e) {
+      setError(String(e))
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const embeddingReady = Boolean(info?.embedding)
+  const candidates = providers.filter((p) => embedTypes.size === 0 || embedTypes.has(p.type_id))
+
+  return (
+    <section className="settings-section">
+      <div className="section-head">
+        <h2>Knowledge</h2>
+        {(info?.sources.length ?? 0) > 0 && (
+          <button
+            className="btn btn-danger"
+            disabled={busy}
+            onClick={() => {
+              if (confirm(`Clear the whole index (${info?.sources.length} sources)?`))
+                run(async () => {
+                  const r = await clearKnowledge()
+                  return `Cleared ${r.deleted} sources`
+                })
+            }}
+          >
+            Clear index
+          </button>
+        )}
+      </div>
+      <p className="hint">
+        Index files or folders (from the agent-accessible folders above) into a local search
+        index using an embedding model. The agent's <code>knowledge_search</code> tool quotes
+        from them - so you can chat with documents far bigger than the context window.
+        Everything stays in the local database.
+      </p>
+      <div className="card form">
+        <label>
+          Embedding provider
+          <select value={providerId} onChange={(e) => setProviderId(e.target.value)}>
+            <option value="">choose…</option>
+            {candidates.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Embedding model
+          <input
+            value={model}
+            placeholder="e.g. text-embedding-nomic-embed-text-v1.5"
+            onChange={(e) => setModel(e.target.value)}
+          />
+        </label>
+        <div className="row">
+          <button
+            className="btn btn-primary"
+            disabled={!providerId || !model.trim() || busy}
+            onClick={() =>
+              run(async () => {
+                const r = await setKnowledgeEmbedding(providerId, model.trim())
+                return (
+                  `✓ Embedding works (${r.dim} dimensions)` +
+                  (r.cleared_sources ? ` - cleared ${r.cleared_sources} sources indexed with the old model` : '')
+                )
+              })
+            }
+          >
+            Save & test
+          </button>
+          {status && <span className="muted">{status}</span>}
+        </div>
+      </div>
+      {info?.sources.map((s) => (
+        <div key={s.id} className="card row">
+          <div className="grow">
+            <strong>{s.path.split(/[\\/]/).pop()}</strong>
+            <div className="muted mono">
+              {s.path} · {s.chunk_count} chunks
+            </div>
+          </div>
+          <button
+            className="btn"
+            disabled={busy || !embeddingReady}
+            onClick={() =>
+              run(async () => {
+                const r = await indexKnowledgePath(s.path)
+                return `Reindexed (${r.indexed[0]?.chunks ?? 0} chunks)`
+              })
+            }
+          >
+            Reindex
+          </button>
+          <button
+            className="btn btn-danger"
+            disabled={busy}
+            onClick={() =>
+              run(async () => {
+                await deleteKnowledgeSource(s.id)
+                return 'Removed'
+              })
+            }
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <div className="card row">
+        <input
+          className="mono grow"
+          value={newPath}
+          placeholder={embeddingReady ? 'D:\\docs\\manual.pdf or a folder' : 'Configure an embedding model first'}
+          disabled={!embeddingReady}
+          onChange={(e) => setNewPath(e.target.value)}
+        />
+        <button
+          className="btn btn-primary"
+          disabled={!newPath.trim() || busy || !embeddingReady}
+          onClick={async () => {
+            if (
+              await run(async () => {
+                const r = await indexKnowledgePath(newPath.trim())
+                const chunks = r.indexed.reduce((n, f) => n + f.chunks, 0)
+                const skipped = r.skipped.length ? ` (skipped: ${r.skipped.join('; ')})` : ''
+                return `Indexed ${r.indexed.length} file(s), ${chunks} chunks${skipped}`
+              })
+            )
+              setNewPath('')
+          }}
+        >
+          {busy ? 'Indexing…' : 'Index'}
+        </button>
+      </div>
+      {(info?.sources.length ?? 0) > 0 && (
+        <div className="card row">
+          <input
+            className="grow"
+            value={query}
+            placeholder="Try a search against the index…"
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && query.trim() && !busy) {
+                run(async () => {
+                  const r = await searchKnowledge(query.trim())
+                  setHits(r.results.map((h) => ({ path: h.path, content: h.content.slice(0, 200) })))
+                  return `${r.results.length} result(s)`
+                })
+              }
+            }}
+          />
+        </div>
+      )}
+      {hits && hits.length > 0 && (
+        <div className="card">
+          {hits.slice(0, 3).map((h, i) => (
+            <div key={i} className="muted" style={{ marginBottom: 6 }}>
+              <span className="mono">{h.path.split(/[\\/]/).pop()}</span>: {h.content}…
+            </div>
+          ))}
+        </div>
+      )}
       {error && <div className="form-error">⚠ {error}</div>}
     </section>
   )

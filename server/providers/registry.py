@@ -71,6 +71,8 @@ def provider_types() -> list[dict[str, Any]]:
             "type_id": cls.type_id,
             "display_name": cls.display_name,
             "config_fields": [f.model_dump() for f in cls.config_fields],
+            # knowledge settings only offer types that override embed()
+            "supports_embeddings": cls.embed is not ModelProvider.embed,
         }
         for cls in load_provider_types().values()
     ]
