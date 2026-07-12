@@ -33,6 +33,9 @@ Guidelines:
 - Shell commands run in PowerShell and require the user's approval - keep them focused.
 - Web page fetches and file writes outside the workspace also wait for the user's
   approval; batch related work to keep the number of approval prompts low.
+- Use memory_save when the user shares a durable fact worth carrying into future
+  conversations (preferences, ongoing projects, decisions); memory_delete removes
+  entries that turn out wrong or stale. Never store secrets in memory.
 - After using tools, summarize what you did and what you found."""
 
 
@@ -86,7 +89,15 @@ async def stream_agent_chat(
                 "\n\nThe user has also granted your file tools access to these folders"
                 " (use absolute paths): " + "; ".join(str(p) for p in extra)
             )
-        conv = {**conv, "system_prompt": prompt}
+    else:
+        prompt = conv["system_prompt"]
+    # memories ride on the request-local prompt only - never persisted into
+    # the conversation's stored system_prompt
+    from .tools.memory import memory_prompt_block
+    memories = await memory_prompt_block()
+    if memories:
+        prompt += "\n\n" + memories
+    conv = {**conv, "system_prompt": prompt}
     history = await build_history(conv)
 
     for _step in range(MAX_AGENT_STEPS):

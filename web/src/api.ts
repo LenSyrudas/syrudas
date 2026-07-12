@@ -89,6 +89,30 @@ export const rewindConversation = (id: string, includeLastUser: boolean) =>
 
 export const exportConversationUrl = (id: string) => `/api/conversations/${id}/export`
 
+// --- agent memory ---
+
+export interface MemoryEntry {
+  id: string
+  content: string
+  created_at: string
+  updated_at: string
+}
+
+export const listMemories = () => fetch('/api/memories').then((r) => json<MemoryEntry[]>(r))
+
+export const addMemory = (content: string) =>
+  fetch('/api/memories', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ content }),
+  }).then((r) => json<MemoryEntry>(r))
+
+export const deleteMemory = (id: string) =>
+  fetch(`/api/memories/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r))
+
+export const clearMemories = () =>
+  fetch('/api/memories', { method: 'DELETE' }).then((r) => json<{ deleted: number }>(r))
+
 // --- prompt presets ---
 
 export interface PromptPreset {

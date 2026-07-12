@@ -13,7 +13,9 @@ built around one idea: **any model backend plugs in through a small provider API
   **Google (Gemini)** ship in [plugins/](plugins) — add an API key in Settings to activate
 - **Agent mode** — the model plans and calls tools: PowerShell (per-call approval gate in the UI),
   file read/write/list (workspace by default, plus folders you grant under
-  Settings → Agent file access), web fetch, web search
+  Settings → Agent file access), web fetch, web search, and **persistent memory** —
+  durable facts saved across conversations, reviewable and deletable under
+  Settings → Agent memory
 - **MCP** — register stdio MCP servers in Settings; their tools merge into agent mode
 - Local-first: FastAPI + React, SQLite, no telemetry, keys never leave your machine
 

@@ -52,6 +52,12 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS memories (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -316,6 +322,60 @@ async def delete_mcp_server(server_id: str) -> None:
     db = await get_db()
     await db.execute("DELETE FROM mcp_servers WHERE id = ?", (server_id,))
     await db.commit()
+
+
+# --- agent memories ---
+
+async def add_memory(content: str) -> dict:
+    """Insert a memory; exact-duplicate content returns the existing row."""
+    db = await get_db()
+    rows = await db.execute_fetchall("SELECT * FROM memories WHERE content = ?", (content,))
+    if rows:
+        return dict(rows[0])
+    # short id: the model has to type it back for memory_delete
+    mem = {"id": new_id()[:8], "content": content, "created_at": now(), "updated_at": now()}
+    await db.execute(
+        "INSERT INTO memories (id,content,created_at,updated_at)"
+        " VALUES (:id,:content,:created_at,:updated_at)", mem)
+    await db.commit()
+    return mem
+
+
+async def list_memories() -> list[dict]:
+    db = await get_db()
+    rows = await db.execute_fetchall(
+        "SELECT * FROM memories ORDER BY created_at DESC, rowid DESC")
+    return [dict(r) for r in rows]
+
+
+async def count_memories() -> int:
+    db = await get_db()
+    rows = await db.execute_fetchall("SELECT COUNT(*) AS n FROM memories")
+    return rows[0]["n"]
+
+
+async def search_memories(query: str) -> list[dict]:
+    db = await get_db()
+    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    rows = await db.execute_fetchall(
+        "SELECT * FROM memories WHERE content LIKE ? ESCAPE '\\'"
+        " ORDER BY created_at DESC, rowid DESC",
+        (f"%{escaped}%",))
+    return [dict(r) for r in rows]
+
+
+async def delete_memory(mem_id: str) -> bool:
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM memories WHERE id = ?", (mem_id,))
+    await db.commit()
+    return cursor.rowcount > 0
+
+
+async def clear_memories() -> int:
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM memories")
+    await db.commit()
+    return cursor.rowcount
 
 
 # --- settings ---

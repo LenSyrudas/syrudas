@@ -1,19 +1,23 @@
 import { useEffect, useState } from 'react'
 import {
+  addMemory,
   checkProvider,
+  clearMemories,
   createMcpServer,
   createProvider,
   deleteMcpServer,
+  deleteMemory,
   deleteProvider,
   getAgentFolders,
   listMcpServers,
+  listMemories,
   listProviderTypes,
   listProviders,
   setAgentFolders,
   setMcpServerEnabled,
   updateProvider,
 } from '../api'
-import type { AgentFolders } from '../api'
+import type { AgentFolders, MemoryEntry } from '../api'
 import type { McpServer, ProviderInstance, ProviderType } from '../types'
 
 export default function SettingsView({ onProvidersChanged }: { onProvidersChanged: () => void }) {
@@ -31,6 +35,7 @@ export default function SettingsView({ onProvidersChanged }: { onProvidersChange
       <ProvidersSection onChanged={onProvidersChanged} />
       <McpSection />
       <AgentAccessSection />
+      <MemorySection />
       <footer className="settings-footer">
         👁 Syrudas AI{version ? ` v${version}` : ''} · local-first, no telemetry
       </footer>
@@ -279,6 +284,91 @@ function AgentAccessSection() {
           }}
         >
           Grant access
+        </button>
+      </div>
+      {error && <div className="form-error">⚠ {error}</div>}
+    </section>
+  )
+}
+
+function MemorySection() {
+  const [memories, setMemories] = useState<MemoryEntry[]>([])
+  const [newMemory, setNewMemory] = useState('')
+  const [error, setError] = useState('')
+
+  const refresh = () => listMemories().then(setMemories).catch(console.error)
+  useEffect(() => {
+    refresh()
+  }, [])
+
+  async function run(action: () => Promise<unknown>) {
+    try {
+      await action()
+      setError('')
+      refresh()
+    } catch (e) {
+      setError(String(e))
+    }
+  }
+
+  return (
+    <section className="settings-section">
+      <div className="section-head">
+        <h2>Agent memory</h2>
+        {memories.length > 0 && (
+          <button
+            className="btn btn-danger"
+            onClick={() => {
+              if (confirm(`Forget all ${memories.length} memories?`)) run(clearMemories)
+            }}
+          >
+            Forget all
+          </button>
+        )}
+      </div>
+      <p className="hint">
+        Durable facts the agent saved with <code>memory_save</code> (or that you add here). They
+        are shown to the agent at the start of every agent-mode conversation; normal chat never
+        sees them. Stored locally in the database.
+      </p>
+      {memories.map((m) => (
+        <div key={m.id} className="card row">
+          <div className="grow">
+            {m.content}
+            <div className="muted">
+              [{m.id}] · {new Date(m.created_at).toLocaleDateString()}
+            </div>
+          </div>
+          <button className="btn btn-danger" onClick={() => run(() => deleteMemory(m.id))}>
+            Forget
+          </button>
+        </div>
+      ))}
+      {memories.length === 0 && (
+        <div className="card muted">No memories yet - the agent saves them as you chat.</div>
+      )}
+      <div className="card row">
+        <input
+          className="grow"
+          value={newMemory}
+          placeholder="Add a memory, e.g. I prefer answers in metric units"
+          onChange={(e) => setNewMemory(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && newMemory.trim()) {
+              run(() => addMemory(newMemory.trim()))
+              setNewMemory('')
+            }
+          }}
+        />
+        <button
+          className="btn btn-primary"
+          disabled={!newMemory.trim()}
+          onClick={() => {
+            run(() => addMemory(newMemory.trim()))
+            setNewMemory('')
+          }}
+        >
+          Remember
         </button>
       </div>
       {error && <div className="form-error">⚠ {error}</div>}
