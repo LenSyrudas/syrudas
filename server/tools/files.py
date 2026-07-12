@@ -83,6 +83,16 @@ class FileWriteTool(Tool):
         "required": ["path", "content"],
     }
 
+    async def needs_approval(self, args: dict[str, Any]) -> bool:
+        """Workspace writes are free; writes to user-granted folders are gated."""
+        roots = await allowed_roots()
+        try:
+            target = _resolve(str(args.get("path", "")), roots)
+        except ValueError:
+            return False  # run() will refuse it anyway - no point prompting
+        workspace = roots[0]
+        return target != workspace and workspace not in target.parents
+
     async def run(self, args: dict[str, Any]) -> str:
         try:
             target = _resolve(str(args.get("path", "")), await allowed_roots())

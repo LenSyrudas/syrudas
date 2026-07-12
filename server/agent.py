@@ -31,6 +31,8 @@ Guidelines:
 - Use tools when they help; answer directly when they don't.
 - Prefer file tools over shell for reading/writing workspace files.
 - Shell commands run in PowerShell and require the user's approval - keep them focused.
+- Web page fetches and file writes outside the workspace also wait for the user's
+  approval; batch related work to keep the number of approval prompts low.
 - After using tools, summarize what you did and what you found."""
 
 
@@ -150,7 +152,7 @@ async def _execute_tool_call(tool_map: dict[str, Tool], tc: ToolCall) -> Optiona
     tool = tool_map.get(tc.name)
     if tool is None:
         return f"Error: unknown tool '{tc.name}'"
-    if tool.requires_approval:
+    if await tool.needs_approval(tc.arguments):
         return None
     return await _run_tool(tool, tc)
 

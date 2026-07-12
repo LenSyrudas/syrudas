@@ -13,6 +13,10 @@ class Tool(ABC):
     parameters: dict[str, Any] = {"type": "object", "properties": {}}
     requires_approval: bool = False
 
+    async def needs_approval(self, args: dict[str, Any]) -> bool:
+        """Per-call approval decision; override for argument-dependent gating."""
+        return self.requires_approval
+
     def spec(self) -> ToolSpec:
         return ToolSpec(name=self.name, description=self.description, parameters=self.parameters)
 

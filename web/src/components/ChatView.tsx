@@ -381,7 +381,7 @@ export default function ChatView({
             <p>
               {canSend
                 ? agentMode
-                  ? 'Agent mode: the model can plan and use tools. Shell commands wait for your approval.'
+                  ? 'Agent mode: the model can plan and use tools. Shell commands, web fetches and writes outside the workspace wait for your approval.'
                   : 'Ask anything. Swap models any time from the picker above.'
                 : 'Add a model provider in Settings to get started.'}
             </p>
