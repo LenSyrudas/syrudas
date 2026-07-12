@@ -78,6 +78,20 @@ class OpenAICompatProvider(ModelProvider):
         models = data.get("data", data if isinstance(data, list) else [])
         return [ModelInfo(id=m["id"], name=m.get("name")) for m in models if "id" in m]
 
+    async def embed(self, model: str, texts: list[str]) -> list[list[float]]:
+        """OpenAI-compatible /embeddings (works with Ollama, LM Studio, OpenAI...)."""
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.post(
+                f"{self.base_url}/embeddings",
+                headers=self._headers(),
+                json={"model": model, "input": texts},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        # servers should preserve order, but the spec keys results by index
+        rows = sorted(data.get("data", []), key=lambda d: d.get("index", 0))
+        return [r["embedding"] for r in rows]
+
     async def chat(
         self,
         model: str,

@@ -48,6 +48,14 @@ class ModelProvider(ABC):
         """Stream a completion as StreamEvents. Must end with a `done` event
         (or `error`). Tool calls are emitted as complete `tool_call` events."""
 
+    async def embed(self, model: str, texts: list[str]) -> list[list[float]]:
+        """Embed texts into vectors (optional capability; used by local RAG).
+
+        Providers that can't embed raise NotImplementedError - the knowledge
+        settings UI only offers provider types that override this."""
+        raise NotImplementedError(
+            f"{self.display_name or self.type_id} does not support embeddings")
+
     async def check(self) -> str:
         """Connection test for the settings UI. Returns a human summary or raises."""
         models = await self.list_models()
