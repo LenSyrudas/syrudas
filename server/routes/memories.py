@@ -24,9 +24,10 @@ async def add_memory(body: MemoryIn):
         raise HTTPException(400, "Memory content is required")
     if len(content) > MAX_MEMORY_CHARS:
         raise HTTPException(400, f"Memory too long (max {MAX_MEMORY_CHARS} characters)")
-    if await db.count_memories() >= MAX_MEMORIES:
+    try:
+        return await db.add_memory(content, cap=MAX_MEMORIES)
+    except ValueError:
         raise HTTPException(400, f"Memory is full ({MAX_MEMORIES} entries) - delete some first")
-    return await db.add_memory(content)
 
 
 @router.delete("/memories/{mem_id}")

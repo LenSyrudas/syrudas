@@ -295,20 +295,31 @@ function MemorySection() {
   const [memories, setMemories] = useState<MemoryEntry[]>([])
   const [newMemory, setNewMemory] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
   const refresh = () => listMemories().then(setMemories).catch(console.error)
   useEffect(() => {
     refresh()
   }, [])
 
-  async function run(action: () => Promise<unknown>) {
+  async function run(action: () => Promise<unknown>): Promise<boolean> {
+    setBusy(true)
     try {
       await action()
       setError('')
       refresh()
+      return true
     } catch (e) {
       setError(String(e))
+      return false
+    } finally {
+      setBusy(false)
     }
+  }
+
+  async function remember() {
+    // clear only after the save succeeds - a 400 must not eat the typed text
+    if (await run(() => addMemory(newMemory.trim()))) setNewMemory('')
   }
 
   return (
@@ -339,7 +350,11 @@ function MemorySection() {
               [{m.id}] · {new Date(m.created_at).toLocaleDateString()}
             </div>
           </div>
-          <button className="btn btn-danger" onClick={() => run(() => deleteMemory(m.id))}>
+          <button
+            className="btn btn-danger"
+            disabled={busy}
+            onClick={() => run(() => deleteMemory(m.id))}
+          >
             Forget
           </button>
         </div>
@@ -351,22 +366,20 @@ function MemorySection() {
         <input
           className="grow"
           value={newMemory}
+          maxLength={500}
           placeholder="Add a memory, e.g. I prefer answers in metric units"
           onChange={(e) => setNewMemory(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && newMemory.trim()) {
-              run(() => addMemory(newMemory.trim()))
-              setNewMemory('')
+            // isComposing: Enter that confirms an IME composition must not submit
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing && newMemory.trim() && !busy) {
+              remember()
             }
           }}
         />
         <button
           className="btn btn-primary"
-          disabled={!newMemory.trim()}
-          onClick={() => {
-            run(() => addMemory(newMemory.trim()))
-            setNewMemory('')
-          }}
+          disabled={!newMemory.trim() || busy}
+          onClick={remember}
         >
           Remember
         </button>

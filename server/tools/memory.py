@@ -48,10 +48,11 @@ class MemorySaveTool(Tool):
             return "Error: empty content"
         if len(content) > MAX_MEMORY_CHARS:
             return f"Error: memory too long ({len(content)} chars, max {MAX_MEMORY_CHARS}) - distill it"
-        if await db.count_memories() >= MAX_MEMORIES:
+        try:
+            mem = await db.add_memory(content, cap=MAX_MEMORIES)
+        except ValueError:
             return (f"Error: memory is full ({MAX_MEMORIES} entries). "
                     "Delete outdated memories with memory_delete first.")
-        mem = await db.add_memory(content)
         return f"Saved memory [{mem['id']}]"
 
 

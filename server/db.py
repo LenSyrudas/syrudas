@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -326,17 +327,30 @@ async def delete_mcp_server(server_id: str) -> None:
 
 # --- agent memories ---
 
-async def add_memory(content: str) -> dict:
-    """Insert a memory; exact-duplicate content returns the existing row."""
+async def add_memory(content: str, cap: Optional[int] = None) -> dict:
+    """Insert a memory; exact-duplicate content returns the existing row.
+
+    The duplicate lookup runs BEFORE the cap check so re-saving a known fact
+    is a no-op even at capacity. Raises ValueError when the store is full."""
     db = await get_db()
     rows = await db.execute_fetchall("SELECT * FROM memories WHERE content = ?", (content,))
     if rows:
         return dict(rows[0])
-    # short id: the model has to type it back for memory_delete
-    mem = {"id": new_id()[:8], "content": content, "created_at": now(), "updated_at": now()}
-    await db.execute(
-        "INSERT INTO memories (id,content,created_at,updated_at)"
-        " VALUES (:id,:content,:created_at,:updated_at)", mem)
+    if cap is not None and await count_memories() >= cap:
+        raise ValueError(f"memory is full ({cap} entries)")
+    # short id: the model has to type it back for memory_delete; retry the
+    # (vanishingly rare) id collision instead of surfacing an IntegrityError
+    for _ in range(5):
+        mem = {"id": new_id()[:8], "content": content, "created_at": now(), "updated_at": now()}
+        try:
+            await db.execute(
+                "INSERT INTO memories (id,content,created_at,updated_at)"
+                " VALUES (:id,:content,:created_at,:updated_at)", mem)
+            break
+        except sqlite3.IntegrityError:
+            continue
+    else:
+        raise RuntimeError("could not allocate a unique memory id")
     await db.commit()
     return mem
 

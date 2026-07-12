@@ -147,7 +147,7 @@ export function PersonaPanel({
           placeholder="save as preset…"
           onChange={(e) => setPresetName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') savePreset()
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) savePreset()
           }}
         />
         <button
