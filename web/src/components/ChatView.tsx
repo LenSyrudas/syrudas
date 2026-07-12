@@ -25,6 +25,49 @@ function fileBlock(a: Attachment): string {
   return `<file name="${a.name.replace(/"/g, "'")}">\n${a.content}\n</file>`
 }
 
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // fall through to the legacy path
+  }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  try {
+    return document.execCommand('copy')
+  } finally {
+    ta.remove()
+  }
+}
+
+function CopyButton({ text, className = '' }: { text: string; className?: string }) {
+  const [copied, setCopied] = useState(false)
+  const timerRef = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(timerRef.current), [])
+  return (
+    <button
+      className={`icon-btn copy-btn ${copied ? 'copied' : ''} ${className}`}
+      title="Copy message text"
+      onClick={async () => {
+        if (await copyToClipboard(text)) {
+          setCopied(true)
+          window.clearTimeout(timerRef.current)
+          timerRef.current = window.setTimeout(() => setCopied(false), 1500)
+        }
+      }}
+    >
+      {copied ? '✓' : '⧉'}
+    </button>
+  )
+}
+
 export interface ToolItem {
   kind: 'tool'
   call: ToolCall
@@ -363,6 +406,7 @@ export default function ChatView({
                     )}
                     {text}
                   </div>
+                  <CopyButton text={text || item.content} className="msg-action" />
                   {canRewind && i === lastUserIndex && (
                     <button
                       className="icon-btn msg-action"
@@ -380,6 +424,11 @@ export default function ChatView({
                 <div key={i} className="msg assistant">
                   <Markdown>{item.content}</Markdown>
                   {item.streaming && <span className="cursor">▌</span>}
+                  {!item.streaming && (
+                    <div className="msg-toolbar">
+                      <CopyButton text={item.content} />
+                    </div>
+                  )}
                 </div>
               )
             case 'tool':

@@ -353,6 +353,17 @@ body {
   line-height: 1.55;
 }
 
+/* reserved (invisible) row under assistant messages so the copy button
+   appearing on hover never shifts the layout */
+.msg-toolbar {
+  visibility: hidden;
+  margin-top: 2px;
+}
+
+.msg.assistant:hover .msg-toolbar {
+  visibility: visible;
+}
+
 .msg.thinking {
   color: var(--text-dim);
 }
@@ -669,6 +680,15 @@ body {
 
 .icon-btn:hover {
   color: var(--danger);
+}
+
+.copy-btn:hover {
+  color: var(--accent);
+}
+
+.copy-btn.copied {
+  visibility: visible;
+  color: var(--ok);
 }
 
 select,
