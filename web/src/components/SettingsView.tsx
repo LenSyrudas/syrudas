@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   addMemory,
   checkProvider,
@@ -23,7 +23,7 @@ import {
   setMcpServerEnabled,
   updateProvider,
 } from '../api'
-import type { AgentFolders, KnowledgeInfo, MemoryEntry } from '../api'
+import type { AgentFolders, KnowledgeIndexResult, KnowledgeInfo, MemoryEntry } from '../api'
 import type { McpServer, ProviderInstance, ProviderType } from '../types'
 
 export default function SettingsView({ onProvidersChanged }: { onProvidersChanged: () => void }) {
@@ -298,6 +298,13 @@ function AgentAccessSection() {
   )
 }
 
+function summarizeIndex(r: KnowledgeIndexResult): string {
+  const chunks = r.indexed.reduce((n, f) => n + f.chunks, 0)
+  const skipped = r.skipped.length ? ` - skipped: ${r.skipped.join('; ')}` : ''
+  if (r.indexed.length === 0) return `Nothing indexed${skipped || ' (no matching files)'}`
+  return `Indexed ${r.indexed.length} file(s), ${chunks} chunks${skipped}`
+}
+
 function KnowledgeSection() {
   const [info, setInfo] = useState<KnowledgeInfo | null>(null)
   const [providers, setProviders] = useState<ProviderInstance[]>([])
@@ -310,30 +317,38 @@ function KnowledgeSection() {
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const prefilled = useRef(false)
+
+  const refreshProviders = () => listProviders().then(setProviders).catch(console.error)
 
   const refresh = () =>
     getKnowledge()
       .then((k) => {
         setInfo(k)
-        if (k.embedding) {
-          setProviderId((p) => p || k.embedding!.provider_id)
-          setModel((m) => m || k.embedding!.model)
+        // prefill the form from the saved config once - not on every refresh,
+        // or clearing a field would refill it under the user's cursor
+        if (k.embedding && !prefilled.current) {
+          prefilled.current = true
+          setProviderId(k.embedding.provider_id)
+          setModel(k.embedding.model)
         }
       })
       .catch(console.error)
 
   useEffect(() => {
     refresh()
-    listProviders().then(setProviders).catch(console.error)
+    refreshProviders()
     listProviderTypes()
       .then((types) =>
         setEmbedTypes(new Set(types.filter((t) => t.supports_embeddings).map((t) => t.type_id))),
       )
       .catch(console.error)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function run(action: () => Promise<string>) {
     setBusy(true)
+    setHits(null) // results from a previous index state would be misleading
     try {
       setStatus(await action())
       setError('')
@@ -341,6 +356,7 @@ function KnowledgeSection() {
       return true
     } catch (e) {
       setError(String(e))
+      setStatus('')
       return false
     } finally {
       setBusy(false)
@@ -379,13 +395,20 @@ function KnowledgeSection() {
       <div className="card form">
         <label>
           Embedding provider
-          <select value={providerId} onChange={(e) => setProviderId(e.target.value)}>
+          <select
+            value={providerId}
+            onFocus={refreshProviders}
+            onChange={(e) => setProviderId(e.target.value)}
+          >
             <option value="">choose…</option>
             {candidates.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
             ))}
+            {providerId && !candidates.some((p) => p.id === providerId) && (
+              <option value={providerId}>(missing provider)</option>
+            )}
           </select>
         </label>
         <label>
@@ -412,7 +435,6 @@ function KnowledgeSection() {
           >
             Save & test
           </button>
-          {status && <span className="muted">{status}</span>}
         </div>
       </div>
       {info?.sources.map((s) => (
@@ -427,10 +449,7 @@ function KnowledgeSection() {
             className="btn"
             disabled={busy || !embeddingReady}
             onClick={() =>
-              run(async () => {
-                const r = await indexKnowledgePath(s.path)
-                return `Reindexed (${r.indexed[0]?.chunks ?? 0} chunks)`
-              })
+              run(async () => summarizeIndex(await indexKnowledgePath(s.path)))
             }
           >
             Reindex
@@ -461,14 +480,7 @@ function KnowledgeSection() {
           className="btn btn-primary"
           disabled={!newPath.trim() || busy || !embeddingReady}
           onClick={async () => {
-            if (
-              await run(async () => {
-                const r = await indexKnowledgePath(newPath.trim())
-                const chunks = r.indexed.reduce((n, f) => n + f.chunks, 0)
-                const skipped = r.skipped.length ? ` (skipped: ${r.skipped.join('; ')})` : ''
-                return `Indexed ${r.indexed.length} file(s), ${chunks} chunks${skipped}`
-              })
-            )
+            if (await run(async () => summarizeIndex(await indexKnowledgePath(newPath.trim()))))
               setNewPath('')
           }}
         >
@@ -503,6 +515,7 @@ function KnowledgeSection() {
           ))}
         </div>
       )}
+      {status && <div className="muted">{status}</div>}
       {error && <div className="form-error">⚠ {error}</div>}
     </section>
   )

@@ -415,18 +415,24 @@ async def replace_knowledge_source(path: str, kind: str, chars: int,
     """Insert or reindex a source: old chunks are dropped (cascade), new ones
     written in one transaction so a failed reindex can't leave half a file."""
     db = await get_db()
-    await db.execute("DELETE FROM knowledge_sources WHERE path = ?", (path,))
-    src = {"id": new_id()[:8], "path": path, "kind": kind, "chars": chars,
-           "chunk_count": len(chunks), "indexed_at": now()}
-    await db.execute(
-        "INSERT INTO knowledge_sources (id,path,kind,chars,chunk_count,indexed_at)"
-        " VALUES (:id,:path,:kind,:chars,:chunk_count,:indexed_at)", src)
-    await db.executemany(
-        "INSERT INTO knowledge_chunks (id,source_id,seq,content,embedding)"
-        " VALUES (?,?,?,?,?)",
-        [(new_id(), src["id"], seq, content, embedding)
-         for seq, (content, embedding) in enumerate(chunks)])
-    await db.commit()
+    try:
+        await db.execute("DELETE FROM knowledge_sources WHERE path = ?", (path,))
+        src = {"id": new_id()[:8], "path": path, "kind": kind, "chars": chars,
+               "chunk_count": len(chunks), "indexed_at": now()}
+        await db.execute(
+            "INSERT INTO knowledge_sources (id,path,kind,chars,chunk_count,indexed_at)"
+            " VALUES (:id,:path,:kind,:chars,:chunk_count,:indexed_at)", src)
+        await db.executemany(
+            "INSERT INTO knowledge_chunks (id,source_id,seq,content,embedding)"
+            " VALUES (?,?,?,?,?)",
+            [(new_id(), src["id"], seq, content, embedding)
+             for seq, (content, embedding) in enumerate(chunks)])
+        await db.commit()
+    except Exception:
+        # the connection is shared: without rollback, the next unrelated
+        # commit() would persist this half-applied replace
+        await db.rollback()
+        raise
     return src
 
 

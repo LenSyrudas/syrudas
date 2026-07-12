@@ -76,7 +76,9 @@ def chunk_text(text: str, size: int = CHUNK_CHARS, overlap: int = CHUNK_OVERLAP)
                     end = cut
                     break
         piece = text[start:end].strip()
-        if piece:
+        # long whitespace runs can make the overlap window re-cover the same
+        # text - never emit consecutive identical chunks
+        if piece and (not chunks or piece != chunks[-1]):
             chunks.append(piece)
         if end >= len(text):
             break
@@ -154,29 +156,50 @@ def _collect_files(target: Path) -> tuple[list[Path], list[str]]:
     return files, skipped
 
 
+def _in_roots(path: Path, roots: list[Path]) -> bool:
+    return any(path == root or root in path.parents for root in roots)
+
+
 async def index_path(path_str: str) -> dict:
     """Index a file or folder (sandboxed to the agent's allowed roots)."""
     from .tools.files import _resolve, allowed_roots
 
-    target = _resolve(path_str, await allowed_roots())  # ValueError if outside
+    roots = await allowed_roots()
+    target = _resolve(path_str, roots)  # ValueError if outside
     provider, model = await get_embedder()
     files, skipped = _collect_files(target)
+    existing = {s["path"]: s for s in await db.list_knowledge_sources()}
 
     indexed: list[dict] = []
     total_chunks = await db.count_knowledge_chunks()
     for f in files:
+        # the folder walk can pass through junctions/symlinks that point
+        # OUTSIDE the sandbox - re-check every fully resolved file
+        real = f.resolve()
+        if not _in_roots(real, roots):
+            skipped.append(f"{f.name}: outside the allowed folders")
+            continue
+        old = existing.get(str(real))
         try:
-            text = extract_text(f)[:MAX_FILE_CHARS]
+            text = extract_text(real)[:MAX_FILE_CHARS]
         except Exception as exc:
             skipped.append(f"{f.name}: {exc}")
             continue
         chunks = chunk_text(text)
         if not chunks:
-            skipped.append(f"{f.name}: empty")
+            if old:  # file emptied since it was indexed: drop the stale entry
+                await db.delete_knowledge_source(old["id"])
+                total_chunks -= old["chunk_count"]
+                skipped.append(f"{f.name}: now empty - removed stale index entry")
+            else:
+                skipped.append(f"{f.name}: empty")
             continue
-        if total_chunks + len(chunks) > MAX_TOTAL_CHUNKS:
+        # count the replacement's NET growth: reindexing an existing source
+        # frees its old chunks first
+        net_new = len(chunks) - (old["chunk_count"] if old else 0)
+        if total_chunks + net_new > MAX_TOTAL_CHUNKS:
             skipped.append(f"{f.name}: index is full ({MAX_TOTAL_CHUNKS} chunks)")
-            break
+            continue
         vectors: list[list[float]] = []
         for i in range(0, len(chunks), EMBED_BATCH):
             vectors.extend(await provider.embed(model, chunks[i:i + EMBED_BATCH]))
@@ -185,8 +208,8 @@ async def index_path(path_str: str) -> dict:
                            f"for {len(chunks)} chunks")
             continue
         rows = [(c, pack(normalize(v))) for c, v in zip(chunks, vectors)]
-        src = await db.replace_knowledge_source(str(f), "file", len(text), rows)
-        total_chunks += len(chunks)
+        src = await db.replace_knowledge_source(str(real), "file", len(text), rows)
+        total_chunks += net_new
         indexed.append({"path": src["path"], "chunks": src["chunk_count"]})
     return {"indexed": indexed, "skipped": skipped}
 
