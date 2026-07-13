@@ -47,6 +47,10 @@ class CaptureProvider(ModelProvider):
         if self.mode == "no_done":
             yield StreamEvent(type="text_delta", text="partial edit")
             return
+        if self.mode == "error_event":
+            # error event, then NO done - exercises the got_done fallback
+            yield StreamEvent(type="error", message="upstream 500")
+            return
         yield StreamEvent(type="text_delta", text="revised text")
         yield StreamEvent(type="done")
 
@@ -71,6 +75,10 @@ async def test_crud():
     assert listing[0]["id"] == d2["id"], "newest document first"
     by_id = {r["id"]: r for r in listing}
     assert by_id[doc["id"]]["chars"] == len("Second draft.")
+
+    # clearing content to empty must persist (not be treated as "no change")
+    cleared = await db.update_document(doc["id"], content="")
+    assert cleared["content"] == "" and cleared["title"] == "Essay v2"
 
     assert await db.delete_document(doc["id"]) is True
     assert await db.get_document(doc["id"]) is None
@@ -129,15 +137,27 @@ def test_routes():
     do_edit({"provider_id": seed["id"], "model": "m", "instruction": "continue", "selection": ""})
     assert "no selection" in CaptureProvider.last_messages[1].content.lower()
 
+    # the grounding context is truncated to the cap before hitting the model
+    import server.routes.documents as dm
+    huge = "x" * (dm.MAX_CONTEXT_CHARS + 5000)
+    do_edit({"provider_id": seed["id"], "model": "m", "instruction": "shorten",
+             "selection": "s", "context": huge})
+    ctx_msg = CaptureProvider.last_messages[1].content
+    assert huge not in ctx_msg and ("x" * dm.MAX_CONTEXT_CHARS) in ctx_msg, "context must be capped"
+
     # robustness: raising provider -> error event + synthetic done
     docmod.create_provider = lambda t, c: CaptureProvider("raise")
+    text = do_edit({"provider_id": seed["id"], "model": "m", "instruction": "x"})
+    assert '"error"' in text and '"done"' in text
+    # error event without a done still gets a synthetic done (got_done fallback)
+    docmod.create_provider = lambda t, c: CaptureProvider("error_event")
     text = do_edit({"provider_id": seed["id"], "model": "m", "instruction": "x"})
     assert '"error"' in text and '"done"' in text
     # provider that never emits done still gets one
     docmod.create_provider = lambda t, c: CaptureProvider("no_done")
     text = do_edit({"provider_id": seed["id"], "model": "m", "instruction": "x"})
     assert "partial edit" in text and '"done"' in text
-    print("document routes: CRUD+404s, edit validation, prompt shape, stateless, robustness OK")
+    print("document routes: CRUD+404s, edit validation, prompt shape, context cap, robustness OK")
 
 
 async def main():
