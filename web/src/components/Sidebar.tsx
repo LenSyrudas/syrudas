@@ -1,5 +1,28 @@
+import { useEffect, useState } from 'react'
 import { deleteConversation } from '../api'
 import type { Conversation } from '../types'
+import { setAppearance, THEME_EVENT } from '../theme'
+
+function ThemeToggle() {
+  const isDark = () => document.documentElement.getAttribute('data-theme') !== 'light'
+  const [dark, setDark] = useState(isDark)
+  // re-sync if the theme is changed elsewhere (Settings, OS in system mode)
+  useEffect(() => {
+    const onChange = () => setDark(isDark())
+    window.addEventListener(THEME_EVENT, onChange)
+    return () => window.removeEventListener(THEME_EVENT, onChange)
+  }, [])
+  return (
+    <button
+      className="btn btn-ghost theme-toggle"
+      title={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+      // read the live attribute (not lagged state) so rapid clicks stay correct
+      onClick={() => setAppearance(isDark() ? 'light' : 'dark')}
+    >
+      {dark ? '☀' : '🌙'}
+    </button>
+  )
+}
 
 interface Props {
   conversations: Conversation[]
@@ -82,6 +105,7 @@ export default function Sidebar({
         <button className={`btn btn-ghost ${settingsActive ? 'active' : ''}`} onClick={onSettings}>
           ⚙ Settings
         </button>
+        <ThemeToggle />
       </div>
     </aside>
   )

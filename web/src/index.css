@@ -1,4 +1,6 @@
-:root {
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
   --bg: #0f1117;
   --bg-alt: #161a23;
   --bg-card: #1c212e;
@@ -11,9 +13,168 @@
   --danger: #e5534b;
   --ok: #3fb950;
   --warn: #d29922;
+  --shadow: rgba(0, 0, 0, 0.45);
+  /* syntax highlighting (theme-following; replaces a static hljs stylesheet) */
+  --code-bg: #0d1117;
+  --code-fg: #c9d1d9;
+  --syn-comment: #8b949e;
+  --syn-keyword: #ff7b72;
+  --syn-string: #a5d6ff;
+  --syn-func: #d2a8ff;
+  --syn-number: #79c0ff;
+  --syn-builtin: #ffa657;
   --radius: 10px;
   --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
   --mono: 'Cascadia Code', Consolas, monospace;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-alt: #f4f6f9;
+  --bg-card: #fbfcfe;
+  --bg-hover: #eceff4;
+  --border: #d6dbe3;
+  --text: #1b2027;
+  --text-dim: #5b6472;
+  --accent: #2563eb;
+  --accent-dim: #dbe6ff;
+  --danger: #cc2f26;
+  --ok: #1a7f37;
+  --warn: #9a6700;
+  --shadow: rgba(30, 40, 60, 0.18);
+  --code-bg: #f6f8fa;
+  --code-fg: #24292f;
+  --syn-comment: #6e7781;
+  --syn-keyword: #cf222e;
+  --syn-string: #0a3069;
+  --syn-func: #8250df;
+  --syn-number: #0550ae;
+  --syn-builtin: #953800;
+}
+
+/* --- colorblind-safe semantic palettes (orthogonal to light/dark) ---
+   Only the status hues change; icons/labels (✓ ✗ ⚠) also carry meaning.
+   Values are tuned per background so colored status TEXT still meets WCAG AA:
+   brighter on dark, darker on light. accent-dim (a solid selection tint)
+   stays the base-theme value. */
+
+/* red-green (protanopia / deuteranopia) on DARK: blue / teal-green / orange */
+:root[data-cvd='protanopia'],
+:root[data-cvd='deuteranopia'] {
+  --accent: #4d9bff;
+  --ok: #12b886;
+  --danger: #f2683c;
+  --warn: #e2b100;
+}
+:root[data-cvd='protanopia'] {
+  /* protans see long-wavelength reds as dark; push danger toward orange */
+  --danger: #f4712f;
+}
+/* red-green on LIGHT: darker so colored status text is readable on white */
+:root[data-theme='light'][data-cvd='protanopia'],
+:root[data-theme='light'][data-cvd='deuteranopia'] {
+  --accent: #1d4ed8;
+  --ok: #0f766e;
+  --danger: #c2410c;
+  --warn: #a16207;
+}
+:root[data-theme='light'][data-cvd='protanopia'] {
+  --danger: #b23c0b;
+}
+
+/* blue-yellow (tritanopia): magenta / green / red / cyan (avoids blue↔yellow) */
+:root[data-cvd='tritanopia'] {
+  --accent: #d95fc9;
+  --ok: #2fbf5a;
+  --danger: #f2545e;
+  --warn: #29b6d8;
+}
+:root[data-theme='light'][data-cvd='tritanopia'] {
+  --accent: #a21caf;
+  --ok: #15803d;
+  --danger: #b91c1c;
+  --warn: #0e7490;
+}
+
+/* total color blindness: drop hue entirely and lean on luminance + icons */
+:root[data-cvd='achromatopsia'] .app {
+  filter: grayscale(1);
+}
+
+/* theme-following syntax highlighting (rehype-highlight emits .hljs-* classes) */
+.hljs {
+  background: var(--code-bg);
+  color: var(--code-fg);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-tag,
+.hljs-name,
+.hljs-doctag,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-deletion {
+  color: var(--syn-keyword);
+}
+.hljs-string,
+.hljs-attr,
+.hljs-attribute,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-regexp,
+.hljs-selector-attr,
+.hljs-selector-pseudo,
+.hljs-addition {
+  color: var(--syn-string);
+}
+.hljs-number,
+.hljs-meta,
+.hljs-link,
+.hljs-operator,
+.hljs-variable,
+.hljs-variable.language_ {
+  color: var(--syn-number);
+}
+.hljs-title,
+.hljs-section,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--syn-func);
+}
+.hljs-built_in,
+.hljs-type,
+.hljs-params {
+  color: var(--syn-builtin);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
+
+.theme-toggle {
+  align-self: flex-end;
+  width: auto;
+  padding: 4px 12px;
+  font-size: 15px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
 * {
@@ -193,7 +354,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 24px var(--shadow);
 }
 
 .popover-row {
@@ -433,7 +594,7 @@ body {
 }
 
 .cookbook-banner {
-  background: rgba(210, 153, 34, 0.1);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
   border: 1px solid var(--warn);
   border-radius: var(--radius);
   padding: 10px 14px;
@@ -513,17 +674,17 @@ body {
 }
 
 .fit-good {
-  background: rgba(63, 185, 80, 0.15);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
   color: var(--ok);
 }
 
 .fit-tight {
-  background: rgba(210, 153, 34, 0.15);
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
   color: var(--warn);
 }
 
 .fit-cpu {
-  background: rgba(91, 140, 255, 0.15);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent);
 }
 
@@ -771,8 +932,8 @@ body {
 
 .error-msg {
   color: var(--danger);
-  background: rgba(229, 83, 75, 0.08);
-  border: 1px solid rgba(229, 83, 75, 0.35);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 38%, transparent);
   border-radius: var(--radius);
   padding: 10px 14px;
   font-size: 14px;
@@ -785,7 +946,8 @@ body {
 }
 
 .markdown pre {
-  background: #11141c;
+  background: var(--code-bg);
+  color: var(--code-fg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px;
@@ -797,7 +959,8 @@ body {
 .markdown code {
   font-family: var(--mono);
   font-size: 0.9em;
-  background: #11141c;
+  background: var(--code-bg);
+  color: var(--code-fg);
   padding: 1px 5px;
   border-radius: 4px;
 }
@@ -891,7 +1054,8 @@ body {
 
 .tool-section pre {
   margin: 0;
-  background: #11141c;
+  background: var(--code-bg);
+  color: var(--code-fg);
   border-radius: 6px;
   padding: 8px;
   overflow-x: auto;
@@ -909,7 +1073,7 @@ body {
   gap: 10px;
   padding: 10px 12px;
   border-top: 1px solid var(--warn);
-  background: rgba(210, 153, 34, 0.08);
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
 }
 
 /* ---------- composer ---------- */
@@ -977,7 +1141,8 @@ body {
 
 .file-chip pre {
   margin: 6px 0 0;
-  background: #11141c;
+  background: var(--code-bg);
+  color: var(--code-fg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px;

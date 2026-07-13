@@ -25,6 +25,14 @@ import {
 } from '../api'
 import type { AgentFolders, KnowledgeIndexResult, KnowledgeInfo, MemoryEntry } from '../api'
 import type { McpServer, ProviderInstance, ProviderType } from '../types'
+import {
+  getAppearance,
+  getColorVision,
+  setAppearance,
+  setColorVision,
+  THEME_EVENT,
+} from '../theme'
+import type { Appearance, ColorVision } from '../theme'
 
 export default function SettingsView({ onProvidersChanged }: { onProvidersChanged: () => void }) {
   const [version, setVersion] = useState('')
@@ -38,6 +46,7 @@ export default function SettingsView({ onProvidersChanged }: { onProvidersChange
   return (
     <div className="settings">
       <h1>Settings</h1>
+      <AppearanceSection />
       <ProvidersSection onChanged={onProvidersChanged} />
       <McpSection />
       <AgentAccessSection />
@@ -47,6 +56,83 @@ export default function SettingsView({ onProvidersChanged }: { onProvidersChange
         👁 Syrudas AI{version ? ` v${version}` : ''} · local-first, no telemetry
       </footer>
     </div>
+  )
+}
+
+const APPEARANCES: { value: Appearance; label: string }[] = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+]
+
+const COLOR_VISIONS: { value: ColorVision; label: string }[] = [
+  { value: 'default', label: 'Default' },
+  { value: 'protanopia', label: 'Protanopia (red-blind)' },
+  { value: 'deuteranopia', label: 'Deuteranopia (green-blind)' },
+  { value: 'tritanopia', label: 'Tritanopia (blue-blind)' },
+  { value: 'achromatopsia', label: 'Achromatopsia (no color)' },
+]
+
+function AppearanceSection() {
+  const [appearance, setAppr] = useState<Appearance>(getAppearance())
+  const [cvd, setCvd] = useState<ColorVision>(getColorVision())
+
+  // stay in sync if the theme changes elsewhere (e.g. the sidebar toggle)
+  useEffect(() => {
+    const onChange = () => {
+      setAppr(getAppearance())
+      setCvd(getColorVision())
+    }
+    window.addEventListener(THEME_EVENT, onChange)
+    return () => window.removeEventListener(THEME_EVENT, onChange)
+  }, [])
+
+  return (
+    <section className="settings-section">
+      <div className="section-head">
+        <h2>Appearance</h2>
+      </div>
+      <p className="hint">
+        Theme and colour-vision settings apply instantly and are saved on this device. Status
+        colours also carry icons and labels, so meaning never depends on colour alone.
+      </p>
+      <div className="card form">
+        <label>
+          Theme
+          <select
+            value={appearance}
+            onChange={(e) => {
+              const v = e.target.value as Appearance
+              setAppr(v)
+              setAppearance(v)
+            }}
+          >
+            {APPEARANCES.map((a) => (
+              <option key={a.value} value={a.value}>
+                {a.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Colour vision
+          <select
+            value={cvd}
+            onChange={(e) => {
+              const v = e.target.value as ColorVision
+              setCvd(v)
+              setColorVision(v)
+            }}
+          >
+            {COLOR_VISIONS.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </section>
   )
 }
 

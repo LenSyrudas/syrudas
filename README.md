@@ -35,6 +35,10 @@ built around one idea: **any model backend plugs in through a small provider API
   with any provider that serves an embedding model (e.g. Ollama/LM Studio with
   `nomic-embed-text`); everything stays in the local SQLite database
 - **MCP** — register stdio MCP servers in Settings; their tools merge into agent mode
+- **Themes & accessibility** — light / dark / system appearance plus colour-vision modes
+  (protanopia, deuteranopia, tritanopia, achromatopsia) under Settings → Appearance, a quick
+  theme toggle in the sidebar, and `prefers-reduced-motion` support. Status colours always
+  pair with icons and labels
 - Local-first: FastAPI + React, SQLite, no telemetry, keys never leave your machine
 
 **Docs:** [Setup guide](docs/SETUP.md) · [Whitepaper](docs/WHITEPAPER.md)

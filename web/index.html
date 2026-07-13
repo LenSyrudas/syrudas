@@ -5,6 +5,20 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Syrudas AI</title>
+    <script>
+      // apply theme before first paint to avoid a flash of the wrong theme
+      (function () {
+        try {
+          var a = localStorage.getItem('syrudas.appearance') || 'system'
+          var dark =
+            a === 'dark' ||
+            (a === 'system' && !window.matchMedia('(prefers-color-scheme: light)').matches)
+          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+          var cvd = localStorage.getItem('syrudas.colorVision')
+          if (cvd && cvd !== 'default') document.documentElement.setAttribute('data-cvd', cvd)
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>
