@@ -294,6 +294,47 @@ export async function streamResearch(
   return streamNdjson('/api/research', req, onEvent, signal)
 }
 
+// --- blind arena ---
+
+export interface CompleteRequest {
+  provider_id: string
+  model: string
+  message: string
+  params?: GenParams
+}
+
+export async function streamComplete(
+  req: CompleteRequest,
+  onEvent: (ev: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamNdjson('/api/complete', req, onEvent, signal)
+}
+
+export type ArenaWinner = 'a' | 'b' | 'tie' | 'both_bad'
+
+export interface ArenaStanding {
+  model: string
+  games: number
+  wins: number
+  losses: number
+  ties: number
+  win_rate: number
+}
+
+export const recordArenaVote = (modelA: string, modelB: string, winner: ArenaWinner) =>
+  fetch('/api/arena/vote', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ model_a: modelA, model_b: modelB, winner }),
+  }).then((r) => json<{ ok: boolean }>(r))
+
+export const getArenaLeaderboard = () =>
+  fetch('/api/arena/leaderboard').then((r) => json<ArenaStanding[]>(r))
+
+export const resetArenaLeaderboard = () =>
+  fetch('/api/arena/leaderboard', { method: 'DELETE' }).then((r) => json<{ deleted: number }>(r))
+
 async function streamNdjson(
   url: string,
   body: unknown,

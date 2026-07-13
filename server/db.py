@@ -75,6 +75,13 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
     embedding BLOB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_source ON knowledge_chunks(source_id);
+CREATE TABLE IF NOT EXISTS arena_results (
+    id TEXT PRIMARY KEY,
+    model_a TEXT NOT NULL,
+    model_b TEXT NOT NULL,
+    winner TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -469,6 +476,55 @@ async def clear_knowledge() -> int:
     db = await get_db()
     cursor = await db.execute("DELETE FROM knowledge_sources")
     await db.execute("DELETE FROM knowledge_chunks")
+    await db.commit()
+    return cursor.rowcount
+
+
+# --- arena (blind model comparison) ---
+
+async def add_arena_result(model_a: str, model_b: str, winner: str) -> None:
+    db = await get_db()
+    await db.execute(
+        "INSERT INTO arena_results (id,model_a,model_b,winner,created_at)"
+        " VALUES (?,?,?,?,?)", (new_id(), model_a, model_b, winner, now()))
+    await db.commit()
+
+
+async def arena_leaderboard() -> list[dict]:
+    """Aggregate per-model win/loss/tie tallies from the raw match log."""
+    db = await get_db()
+    rows = await db.execute_fetchall("SELECT model_a, model_b, winner FROM arena_results")
+    stats: dict[str, dict] = {}
+
+    def slot(name: str) -> dict:
+        return stats.setdefault(
+            name, {"model": name, "games": 0, "wins": 0, "losses": 0, "ties": 0})
+
+    for r in rows:
+        a, b, w = slot(r["model_a"]), slot(r["model_b"]), r["winner"]
+        a["games"] += 1
+        b["games"] += 1
+        if w == "a":
+            a["wins"] += 1
+            b["losses"] += 1
+        elif w == "b":
+            b["wins"] += 1
+            a["losses"] += 1
+        elif w == "tie":
+            a["ties"] += 1
+            b["ties"] += 1
+        # 'both_bad' counts as a game for each but neither win nor loss
+
+    out = list(stats.values())
+    for s in out:
+        s["win_rate"] = round(s["wins"] / s["games"], 3) if s["games"] else 0.0
+    out.sort(key=lambda s: (s["win_rate"], s["wins"]), reverse=True)
+    return out
+
+
+async def clear_arena() -> int:
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM arena_results")
     await db.commit()
     return cursor.rowcount
 

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from .. import db, runs
 from ..chat import stream_plain_chat, title_from
 from ..providers.registry import create_provider
-from ..schemas import GenParams
+from ..schemas import GenParams, Message
 
 log = logging.getLogger(__name__)
 
@@ -110,6 +110,40 @@ async def chat(req: ChatRequest):
         if removed_rows and not got_content:
             log.info("Regenerate produced nothing; restoring %d messages", len(removed_rows))
             await db.restore_messages(removed_rows)
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+
+
+class CompleteRequest(BaseModel):
+    provider_id: str
+    model: str
+    message: str
+    params: Optional[GenParams] = None
+
+
+@router.post("/complete")
+async def complete(body: CompleteRequest):
+    """Stateless single-shot streaming completion - no conversation, no
+    persistence. Used by the blind arena (called once per model)."""
+    inst = await db.get_provider_instance(body.provider_id)
+    if not inst:
+        raise HTTPException(400, "Unknown provider instance")
+    if not body.message.strip():
+        raise HTTPException(400, "A message is required")
+    provider = create_provider(inst["type_id"], inst["config"])
+    messages = [Message(role="user", content=body.message)]
+
+    async def event_stream() -> AsyncIterator[str]:
+        got_done = False
+        try:
+            async for ev in provider.chat(body.model, messages, params=body.params):
+                if ev.type == "done":
+                    got_done = True
+                yield _ndjson(ev.model_dump(exclude_none=True))
+        except Exception as exc:
+            yield _ndjson({"type": "error", "message": f"{exc}"})
+        if not got_done:
+            yield _ndjson({"type": "done"})
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
