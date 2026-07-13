@@ -406,6 +406,126 @@ body {
   }
 }
 
+/* ---------- editor ---------- */
+
+.editor {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.doc-list {
+  width: 220px;
+  min-width: 220px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-alt);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.doc-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.doc-item:hover {
+  background: var(--bg-hover);
+}
+
+.doc-item.active {
+  background: var(--accent-dim);
+  color: var(--text);
+}
+
+.doc-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 20px 28px;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.doc-empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.doc-title {
+  font-size: 22px;
+  font-weight: 600;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--text);
+}
+
+.doc-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.doc-custom {
+  display: flex;
+  gap: 8px;
+}
+
+.doc-custom input {
+  flex: 1;
+}
+
+.doc-body {
+  flex: 1;
+  min-height: 300px;
+  resize: none;
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+  padding: 14px;
+  border-radius: var(--radius);
+}
+
+.doc-suggestion {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+}
+
+.doc-suggestion-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.doc-suggestion-body {
+  margin: 0;
+  padding: 12px 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
 /* ---------- arena ---------- */
 
 .arena {

@@ -19,6 +19,9 @@ built around one idea: **any model backend plugs in through a small provider API
 - **Deep Research** — the 🔎 Research button runs a plan → web-search → read-sources →
   synthesize pipeline and produces a cited Markdown report (with a Sources list) as a
   normal conversation. Also searches your local Knowledge index. Progress streams live
+- **Writing editor** — the ✍ Editor view is a document workspace with AI edits: select text
+  and Improve / Shorten / Expand / Fix grammar, Continue from the cursor, or give a custom
+  instruction; suggestions stream in and you accept or reject them. Documents autosave locally
 - **Blind arena** — the ⚔ Arena view pits two models against the same prompt with their
   names hidden (columns randomized), streams both answers, and lets you vote; votes build
   a local win/loss leaderboard

@@ -335,6 +335,64 @@ export const getArenaLeaderboard = () =>
 export const resetArenaLeaderboard = () =>
   fetch('/api/arena/leaderboard', { method: 'DELETE' }).then((r) => json<{ deleted: number }>(r))
 
+// --- writing editor ---
+
+export interface DocumentSummary {
+  id: string
+  title: string
+  chars: number
+  created_at: string
+  updated_at: string
+}
+
+export interface Document {
+  id: string
+  title: string
+  content: string
+  created_at: string
+  updated_at: string
+}
+
+export const listDocuments = () =>
+  fetch('/api/documents').then((r) => json<DocumentSummary[]>(r))
+
+export const getDocument = (id: string) =>
+  fetch(`/api/documents/${id}`).then((r) => json<Document>(r))
+
+export const createDocument = (title = 'Untitled', content = '') =>
+  fetch('/api/documents', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ title, content }),
+  }).then((r) => json<Document>(r))
+
+export const updateDocument = (id: string, patch: { title?: string; content?: string }) =>
+  fetch(`/api/documents/${id}`, {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify(patch),
+  }).then((r) => json<Document>(r))
+
+export const deleteDocument = (id: string) =>
+  fetch(`/api/documents/${id}`, { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r))
+
+export interface EditRequest {
+  provider_id: string
+  model: string
+  instruction: string
+  selection?: string
+  context?: string
+  params?: GenParams
+}
+
+export async function streamEdit(
+  req: EditRequest,
+  onEvent: (ev: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamNdjson('/api/documents/edit', req, onEvent, signal)
+}
+
 async function streamNdjson(
   url: string,
   body: unknown,

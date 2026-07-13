@@ -82,6 +82,13 @@ CREATE TABLE IF NOT EXISTS arena_results (
     winner TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS documents (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT 'Untitled',
+    content TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -529,6 +536,54 @@ async def clear_arena() -> int:
     cursor = await db.execute("DELETE FROM arena_results")
     await db.commit()
     return cursor.rowcount
+
+
+# --- documents (writing editor) ---
+
+async def create_document(title: str = "Untitled", content: str = "") -> dict:
+    db = await get_db()
+    doc = {"id": new_id(), "title": title or "Untitled", "content": content,
+           "created_at": now(), "updated_at": now()}
+    await db.execute(
+        "INSERT INTO documents (id,title,content,created_at,updated_at)"
+        " VALUES (:id,:title,:content,:created_at,:updated_at)", doc)
+    await db.commit()
+    return doc
+
+
+async def list_documents() -> list[dict]:
+    """Lightweight list (no full content) for the document sidebar."""
+    db = await get_db()
+    rows = await db.execute_fetchall(
+        "SELECT id, title, LENGTH(content) AS chars, created_at, updated_at"
+        " FROM documents ORDER BY updated_at DESC")
+    return [dict(r) for r in rows]
+
+
+async def get_document(doc_id: str) -> Optional[dict]:
+    db = await get_db()
+    rows = await db.execute_fetchall("SELECT * FROM documents WHERE id = ?", (doc_id,))
+    return dict(rows[0]) if rows else None
+
+
+async def update_document(doc_id: str, **fields: Any) -> Optional[dict]:
+    allowed = {k: v for k, v in fields.items() if k in ("title", "content")}
+    if not allowed:
+        return await get_document(doc_id)
+    allowed["updated_at"] = now()
+    db = await get_db()
+    sets = ", ".join(f"{k} = :{k}" for k in allowed)
+    cursor = await db.execute(
+        f"UPDATE documents SET {sets} WHERE id = :_id", {**allowed, "_id": doc_id})
+    await db.commit()
+    return await get_document(doc_id) if cursor.rowcount else None
+
+
+async def delete_document(doc_id: str) -> bool:
+    db = await get_db()
+    cursor = await db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+    await db.commit()
+    return cursor.rowcount > 0
 
 
 # --- settings ---

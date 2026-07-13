@@ -9,8 +9,10 @@ interface Props {
   onDeleted: (id: string) => void
   onSettings: () => void
   onArena: () => void
+  onEditor: () => void
   settingsActive: boolean
   arenaActive: boolean
+  editorActive: boolean
 }
 
 export default function Sidebar({
@@ -21,8 +23,10 @@ export default function Sidebar({
   onDeleted,
   onSettings,
   onArena,
+  onEditor,
   settingsActive,
   arenaActive,
+  editorActive,
 }: Props) {
   return (
     <aside className="sidebar">
@@ -62,6 +66,9 @@ export default function Sidebar({
         {conversations.length === 0 && <div className="conv-empty">No conversations yet</div>}
       </nav>
       <div className="sidebar-foot">
+        <button className={`btn btn-ghost ${editorActive ? 'active' : ''}`} onClick={onEditor}>
+          ✍ Editor
+        </button>
         <button className={`btn btn-ghost ${arenaActive ? 'active' : ''}`} onClick={onArena}>
           ⚔ Arena
         </button>
