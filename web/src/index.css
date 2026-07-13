@@ -406,6 +406,154 @@ body {
   }
 }
 
+/* ---------- cookbook ---------- */
+
+.cookbook {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.cookbook-head h1 {
+  margin: 0 0 4px;
+}
+
+.hw-card {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin: 14px 0;
+}
+
+.cookbook-banner {
+  background: rgba(210, 153, 34, 0.1);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.cookbook-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.cookbook-filters .active-control {
+  background: var(--accent-dim);
+  color: var(--text);
+}
+
+.model-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.model-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.model-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.model-tags {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.model-tag {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--bg-hover);
+  color: var(--text-dim);
+}
+
+.model-blurb {
+  font-size: 13px;
+}
+
+.model-fit-reason {
+  font-size: 12px;
+}
+
+.model-card-foot {
+  margin-top: auto;
+  padding-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fit-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.fit-good {
+  background: rgba(63, 185, 80, 0.15);
+  color: var(--ok);
+}
+
+.fit-tight {
+  background: rgba(210, 153, 34, 0.15);
+  color: var(--warn);
+}
+
+.fit-cpu {
+  background: rgba(91, 140, 255, 0.15);
+  color: var(--accent);
+}
+
+.fit-big,
+.fit-unknown {
+  background: var(--bg-hover);
+  color: var(--text-dim);
+}
+
+.pull-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.pull-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.pull-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+
 /* ---------- editor ---------- */
 
 .editor {

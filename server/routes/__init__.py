@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 
 from . import (
-    approvals, arena, attachments, chat, conversations, documents, knowledge,
-    mcp, memories, providers, settings,
+    approvals, arena, attachments, chat, conversations, cookbook, documents,
+    hardware, knowledge, mcp, memories, providers, settings,
 )
 
 api_router = APIRouter(prefix="/api")
@@ -16,4 +16,6 @@ api_router.include_router(memories.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(arena.router)
 api_router.include_router(documents.router)
+api_router.include_router(hardware.router)
+api_router.include_router(cookbook.router)
 api_router.include_router(chat.router)

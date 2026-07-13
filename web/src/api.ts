@@ -393,6 +393,62 @@ export async function streamEdit(
   return streamNdjson('/api/documents/edit', req, onEvent, signal)
 }
 
+// --- model cookbook ---
+
+export interface Gpu {
+  name: string
+  vendor: string
+  vram_total_mb: number | null
+  vram_free_mb: number | null
+  vram_estimated: boolean
+  vram_capped?: boolean
+}
+
+export interface Hardware {
+  os: string
+  cpu: { name: string; cores: number | null; threads: number | null }
+  ram: { total_mb: number | null; available_mb: number | null }
+  gpus: Gpu[]
+  notes: string[]
+}
+
+export interface CatalogModel {
+  name: string
+  params: string
+  size_gb: number
+  min_vram_gb: number
+  min_ram_gb: number
+  tags: string[]
+  blurb: string
+  fit: 'good' | 'tight' | 'cpu' | 'too_big' | 'unknown'
+  fit_reason: string
+  installed: boolean
+}
+
+export interface Cookbook {
+  hardware: Hardware
+  ollama: { configured: boolean; base_url: string | null }
+  installed: string[]
+  catalog: CatalogModel[]
+}
+
+export const getCookbook = () => fetch('/api/cookbook').then((r) => json<Cookbook>(r))
+
+export async function streamPullModel(
+  name: string,
+  onEvent: (ev: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamNdjson('/api/cookbook/pull', { name }, onEvent, signal)
+}
+
+export const deleteModel = (name: string) =>
+  fetch('/api/cookbook/delete', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ name }),
+  }).then((r) => json<{ ok: boolean }>(r))
+
 async function streamNdjson(
   url: string,
   body: unknown,

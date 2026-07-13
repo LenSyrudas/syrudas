@@ -10,9 +10,11 @@ interface Props {
   onSettings: () => void
   onArena: () => void
   onEditor: () => void
+  onCookbook: () => void
   settingsActive: boolean
   arenaActive: boolean
   editorActive: boolean
+  cookbookActive: boolean
 }
 
 export default function Sidebar({
@@ -24,9 +26,11 @@ export default function Sidebar({
   onSettings,
   onArena,
   onEditor,
+  onCookbook,
   settingsActive,
   arenaActive,
   editorActive,
+  cookbookActive,
 }: Props) {
   return (
     <aside className="sidebar">
@@ -66,6 +70,9 @@ export default function Sidebar({
         {conversations.length === 0 && <div className="conv-empty">No conversations yet</div>}
       </nav>
       <div className="sidebar-foot">
+        <button className={`btn btn-ghost ${cookbookActive ? 'active' : ''}`} onClick={onCookbook}>
+          📖 Cookbook
+        </button>
         <button className={`btn btn-ghost ${editorActive ? 'active' : ''}`} onClick={onEditor}>
           ✍ Editor
         </button>

@@ -33,6 +33,7 @@ export interface StreamEvent {
     | 'tool_result'
     | 'approval_required'
     | 'research_status'
+    | 'progress'
     | 'usage'
     | 'error'
     | 'done'
@@ -47,6 +48,10 @@ export interface StreamEvent {
   message?: string
   phase?: string
   detail?: string
+  status?: string
+  percent?: number | null
+  completed?: number
+  total?: number
   input_tokens?: number
   output_tokens?: number
 }

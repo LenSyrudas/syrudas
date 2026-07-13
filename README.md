@@ -19,6 +19,10 @@ built around one idea: **any model backend plugs in through a small provider API
 - **Deep Research** — the 🔎 Research button runs a plan → web-search → read-sources →
   synthesize pipeline and produces a cited Markdown report (with a Sources list) as a
   normal conversation. Also searches your local Knowledge index. Progress streams live
+- **Model cookbook** — the 📖 Cookbook view detects your CPU/RAM/GPU, rates a curated set of
+  local models as fits-your-GPU / tight / CPU / too-big, and downloads the ones you pick straight
+  into Ollama (streamed progress). Pulled models appear in the normal model picker — the cookbook
+  is additive and never replaces the provider system
 - **Writing editor** — the ✍ Editor view is a document workspace with AI edits: select text
   and Improve / Shorten / Expand / Fix grammar, Continue from the cursor, or give a custom
   instruction; suggestions stream in and you accept or reject them. Documents autosave locally

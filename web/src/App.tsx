@@ -4,6 +4,7 @@ import type { GenParams } from './api'
 import ArenaView from './components/ArenaView'
 import { PersonaPanel, TuningPopover } from './components/ChatControls'
 import ChatView from './components/ChatView'
+import CookbookView from './components/CookbookView'
 import EditorView from './components/EditorView'
 import ModelPicker from './components/ModelPicker'
 import SettingsView from './components/SettingsView'
@@ -19,7 +20,7 @@ function loadGenParams(): GenParams {
 }
 
 function App() {
-  const [view, setView] = useState<'chat' | 'settings' | 'arena' | 'editor'>('chat')
+  const [view, setView] = useState<'chat' | 'settings' | 'arena' | 'editor' | 'cookbook'>('chat')
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   // Remount ChatView only when the user switches chats — NOT when a new
@@ -106,9 +107,11 @@ function App() {
         onSettings={() => setView('settings')}
         onArena={() => setView('arena')}
         onEditor={() => setView('editor')}
+        onCookbook={() => setView('cookbook')}
         settingsActive={view === 'settings'}
         arenaActive={view === 'arena'}
         editorActive={view === 'editor'}
+        cookbookActive={view === 'cookbook'}
       />
       <main className="main">
         {view === 'settings' ? (
@@ -117,6 +120,8 @@ function App() {
           <ArenaView providers={providers} />
         ) : view === 'editor' ? (
           <EditorView providerId={providerId} model={model} />
+        ) : view === 'cookbook' ? (
+          <CookbookView />
         ) : (
           <>
             <header className="topbar">
