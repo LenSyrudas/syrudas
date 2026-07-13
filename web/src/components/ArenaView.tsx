@@ -43,8 +43,16 @@ function ModelSelect({
   useEffect(() => {
     if (!pick.providerId) return
     listProviderModels(pick.providerId)
-      .then((list) => setModels(list.map((m) => m.id)))
+      .then((list) => {
+        const ids = list.map((m) => m.id)
+        setModels(ids)
+        // reconcile the selection: a model from the previous provider won't
+        // exist on the new one, so snap to a valid option (mirrors ModelPicker)
+        if (ids.length && !ids.includes(pick.model)) onChange({ ...pick, model: ids[0] })
+        else if (!ids.length && pick.model) onChange({ ...pick, model: '' })
+      })
       .catch(() => setModels([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pick.providerId])
 
   return (
@@ -82,6 +90,7 @@ export default function ArenaView({ providers }: { providers: ProviderInstance[]
   const [running, setRunning] = useState(false)
   const [revealed, setRevealed] = useState(false)
   const [voted, setVoted] = useState<ArenaWinner | null>(null)
+  const [voteError, setVoteError] = useState('')
   const [board, setBoard] = useState<ArenaStanding[]>([])
   const abortRef = useRef<AbortController[]>([])
 
@@ -98,14 +107,18 @@ export default function ArenaView({ providers }: { providers: ProviderInstance[]
         const ids = list.map((m) => m.id)
         if (ids.length) {
           setPickA((p) => (p.model ? p : { providerId: first, model: ids[0] }))
-          setPickB((p) => (p.model ? p : { providerId: first, model: ids[1] ?? ids[0] }))
+          // leave B empty (not a duplicate of A) when only one model exists,
+          // so Compare stays disabled rather than seeding a self-match
+          setPickB((p) => (p.model ? p : { providerId: first, model: ids[1] ?? '' }))
         }
       })
       .catch(() => {})
   }, [first])
 
+  const sameModel = Boolean(pickA.model) && pickA.model === pickB.model
   const canRun =
     Boolean(prompt.trim() && pickA.providerId && pickA.model && pickB.providerId && pickB.model) &&
+    !sameModel &&
     !running
 
   async function runOne(pick: Pick, set: (fn: (s: Side) => Side) => void, signal: AbortSignal) {
@@ -139,6 +152,7 @@ export default function ArenaView({ providers }: { providers: ProviderInstance[]
     setRight(blank(rp))
     setRevealed(false)
     setVoted(null)
+    setVoteError('')
     setRunning(true)
     const ctrls = [new AbortController(), new AbortController()]
     abortRef.current = ctrls
@@ -155,14 +169,16 @@ export default function ArenaView({ providers }: { providers: ProviderInstance[]
 
   async function vote(winner: ArenaWinner) {
     if (!left || !right || voted) return
-    setVoted(winner)
-    setRevealed(true)
-    // translate column choice (left/right) back to the real model labels
+    // record first: only claim "Recorded" and reveal once the write succeeds,
+    // so a failed POST doesn't tell the user a dropped vote was saved
     try {
       await recordArenaVote(labelOf(left.pick), labelOf(right.pick), winner)
+      setVoted(winner)
+      setRevealed(true)
+      setVoteError('')
       refreshBoard()
     } catch (e) {
-      console.error(e)
+      setVoteError(`Could not record vote: ${e}`)
     }
   }
 
@@ -197,6 +213,7 @@ export default function ArenaView({ providers }: { providers: ProviderInstance[]
               Compare
             </button>
           )}
+          {sameModel && <span className="muted">Pick two different models.</span>}
         </div>
       </div>
 
@@ -213,7 +230,11 @@ export default function ArenaView({ providers }: { providers: ProviderInstance[]
               </div>
               <div className="arena-answer">
                 {side.error ? (
-                  <div className="form-error">⚠ {side.error}</div>
+                  // the raw provider error can name the model - keep it hidden
+                  // until the vote so it doesn't break the blind
+                  <div className="form-error">
+                    ⚠ {revealed ? side.error : 'This model returned an error.'}
+                  </div>
                 ) : (
                   <Markdown>{side.text || (side.streaming ? '' : '(no output)')}</Markdown>
                 )}
@@ -223,6 +244,7 @@ export default function ArenaView({ providers }: { providers: ProviderInstance[]
         </div>
       )}
 
+      {voteError && <div className="form-error" style={{ textAlign: 'center' }}>⚠ {voteError}</div>}
       {bothDone && !voted && (
         <div className="arena-vote">
           <span className="muted">Which is better?</span>

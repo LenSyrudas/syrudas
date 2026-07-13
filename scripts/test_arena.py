@@ -23,6 +23,10 @@ class EchoProvider(ModelProvider):
     type_id = "fake"
     display_name = "Fake"
 
+    def __init__(self, mode="ok"):
+        super().__init__({})
+        self.mode = mode
+
     async def list_models(self) -> list[ModelInfo]:
         return [ModelInfo(id="m")]
 
@@ -33,6 +37,15 @@ class EchoProvider(ModelProvider):
         tools: Optional[list[ToolSpec]] = None,
         params: Optional[GenParams] = None,
     ) -> AsyncIterator[StreamEvent]:
+        if self.mode == "raise":
+            raise RuntimeError("provider blew up")
+        if self.mode == "error_event":
+            # yields an error but NO done - exercises the got_done fallback
+            yield StreamEvent(type="error", message="upstream 500")
+            return
+        if self.mode == "no_done":
+            yield StreamEvent(type="text_delta", text="partial")
+            return  # never emits done - exercises the synthetic-done fallback
         yield StreamEvent(type="text_delta", text=f"{model} says hi")
         yield StreamEvent(type="done")
 
@@ -57,7 +70,24 @@ async def test_leaderboard_math():
 
     assert await db.clear_arena() == 5
     assert await db.arena_leaderboard() == []
-    print("leaderboard: win/loss/tie/both_bad tallies + sort + reset OK")
+
+    # win_rate carries 3 decimals (1 win / 3 games = 0.333), not just clean values
+    for w in ("a", "b", "b"):  # gpt: 1 win, 2 losses
+        await db.add_arena_result("gpt", "claude", w)
+    assert next(s for s in await db.arena_leaderboard()
+                if s["model"] == "gpt")["win_rate"] == 0.333
+    await db.clear_arena()
+    print("leaderboard: win/loss/tie/both_bad tallies + sort + reset + rounding OK")
+
+
+async def test_self_match_ignored():
+    await db.clear_arena()
+    # a legacy self-match row must NOT double-count (games=2, win+loss on one model)
+    await db.add_arena_result("solo", "solo", "a")
+    board = await db.arena_leaderboard()
+    assert board == [], f"self-match must be excluded from the leaderboard, got {board}"
+    await db.clear_arena()
+    print("self-match: excluded from aggregation, no double-count OK")
 
 
 def test_routes():
@@ -89,6 +119,27 @@ def test_routes():
     after = len(client.get("/api/conversations", headers=local).json())
     assert before == after, "/api/complete must not persist a conversation"
 
+    # /api/complete robustness: a raising provider becomes an error event + a
+    # synthetic done (never a broken mid-stream 500)
+    def stream_complete():
+        with client.stream("POST", "/api/complete", headers=local,
+                           json={"provider_id": inst["id"], "model": "m", "message": "hi"}) as r:
+            assert r.status_code == 200
+            return "".join(r.iter_text())
+
+    chatmod.create_provider = lambda t, c: EchoProvider("raise")
+    text = stream_complete()
+    assert '"error"' in text and '"done"' in text, f"raise path: {text}"
+    # a provider that emits an error event but no done still gets a synthetic done
+    chatmod.create_provider = lambda t, c: EchoProvider("error_event")
+    text = stream_complete()
+    assert '"error"' in text and '"done"' in text, f"error_event path: {text}"
+    # a provider that never emits done still gets one (got_done fallback)
+    chatmod.create_provider = lambda t, c: EchoProvider("no_done")
+    text = stream_complete()
+    assert "partial" in text and '"done"' in text, f"no_done path: {text}"
+    chatmod.create_provider = lambda t, c: EchoProvider("ok")
+
     # vote validation + recording
     r = client.post("/api/arena/vote", headers=local,
                     json={"model_a": "x", "model_b": "y", "winner": "nonsense"})
@@ -96,6 +147,9 @@ def test_routes():
     r = client.post("/api/arena/vote", headers=local,
                     json={"model_a": "x", "model_b": "", "winner": "a"})
     assert r.status_code == 400, "empty label must 400"
+    r = client.post("/api/arena/vote", headers=local,
+                    json={"model_a": "same", "model_b": "same", "winner": "a"})
+    assert r.status_code == 400, "self-match vote must 400"
     r = client.post("/api/arena/vote", headers=local,
                     json={"model_a": "x", "model_b": "y", "winner": "a"})
     assert r.status_code == 200
@@ -106,11 +160,12 @@ def test_routes():
 
     assert client.delete("/api/arena/leaderboard", headers=local).json()["deleted"] == 1
     assert client.get("/api/arena/leaderboard", headers=local).json() == []
-    print("routes: /complete stateless+validated, vote validation, leaderboard, reset OK")
+    print("routes: /complete stateless+error-paths, vote validation+self-match, leaderboard OK")
 
 
 async def main():
     await test_leaderboard_math()
+    await test_self_match_ignored()
     await db.close_db()
     test_routes()
     print("\nALL ARENA TESTS PASSED")

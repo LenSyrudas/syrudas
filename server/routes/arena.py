@@ -24,6 +24,8 @@ async def vote(body: VoteIn):
     a, b = body.model_a.strip(), body.model_b.strip()
     if not a or not b:
         raise HTTPException(400, "both model labels are required")
+    if a == b:
+        raise HTTPException(400, "cannot compare a model against itself")
     await db.add_arena_result(a, b, body.winner)
     return {"ok": True}
 

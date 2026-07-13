@@ -501,6 +501,8 @@ async def arena_leaderboard() -> list[dict]:
             name, {"model": name, "games": 0, "wins": 0, "losses": 0, "ties": 0})
 
     for r in rows:
+        if r["model_a"] == r["model_b"]:
+            continue  # a model vs itself carries no comparison signal
         a, b, w = slot(r["model_a"]), slot(r["model_b"]), r["winner"]
         a["games"] += 1
         b["games"] += 1
