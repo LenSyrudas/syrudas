@@ -9,10 +9,17 @@ on it and build my own releases."
 - [4. Using agent mode](#4-using-agent-mode)
 - [5. MCP servers](#5-mcp-servers)
 - [6. File attachments](#6-file-attachments)
-- [7. VS Code integration](#7-vs-code-integration)
-- [8. Running from source (developers)](#8-running-from-source-developers)
-- [9. Building the exe and releases](#9-building-the-exe-and-releases)
-- [10. Troubleshooting](#10-troubleshooting)
+- [7. Knowledge (local RAG)](#7-knowledge-local-rag)
+- [8. Deep research](#8-deep-research)
+- [9. Writing editor](#9-writing-editor)
+- [10. Blind arena](#10-blind-arena)
+- [11. Model cookbook](#11-model-cookbook)
+- [12. Appearance & accessibility](#12-appearance--accessibility)
+- [13. VS Code integration](#13-vs-code-integration)
+- [14. Running from source (developers)](#14-running-from-source-developers)
+- [15. Building the exe and releases](#15-building-the-exe-and-releases)
+- [16. Privacy & security](#16-privacy--security)
+- [17. Troubleshooting](#17-troubleshooting)
 
 ---
 
@@ -100,8 +107,11 @@ Toggle **Agent mode** in the top bar (pick a tool-capable model first).
 The model can then:
 
 - run PowerShell commands — **every command pauses for your Approve/Deny**,
-- read/write/list files,
-- fetch web pages and search the web,
+- read, list, and write files (writing *outside* the workspace also asks first),
+- search the web, and **fetch** web pages (fetches ask first, and private/LAN
+  addresses are always refused),
+- remember durable facts across conversations and search them,
+- search your indexed documents (see [Knowledge](#7-knowledge-local-rag)),
 - use any tools from connected MCP servers.
 
 **File access:** by default the file tools only see the agent workspace
@@ -109,6 +119,12 @@ The model can then:
 **Settings → Agent file access** and grant paths (e.g. `D:\projects\myapp`).
 The agent can then use absolute paths inside granted folders; everything
 else is refused. Remove a grant any time.
+
+**Agent memory:** when you share something worth keeping (a preference, a
+project detail, a decision), the agent can save it, and it's shown to the
+agent at the start of future agent-mode conversations. Review, add, and
+delete memories under **Settings → Agent memory**. Plain chat never sees
+them, and nothing is saved silently — each save shows up as a tool card.
 
 ## 5. MCP servers
 
@@ -152,7 +168,74 @@ Note: small local models have small context windows; a large attachment can
 exceed what the model can actually ingest. For big documents prefer a
 long-context model.
 
-## 7. VS Code integration
+## 7. Knowledge (local RAG)
+
+**Settings → Knowledge.** Index your own files and folders so the agent can
+quote from documents far larger than the context window — everything stays on
+your machine.
+
+1. **Pick an embedding model.** Choose a provider and an embedding model
+   (e.g. Ollama/LM Studio serving `nomic-embed-text`), then **Save & test**.
+   Switching the embedding model later clears the index, because vectors from
+   different models aren't comparable.
+2. **Index a file or folder.** Enter a path (must be the workspace or a
+   granted folder — see [Agent file access](#4-using-agent-mode)). Text, code,
+   and PDFs are chunked and embedded. Reindex or Remove sources any time; the
+   built-in search box lets you sanity-check what will be retrieved.
+
+In agent mode the model uses the read-only `knowledge_search` tool to pull
+the most relevant passages before answering. Deep Research (below) searches
+the index too.
+
+## 8. Deep research
+
+Type a question and click **🔎 Research** in the composer (new chat only).
+Syrudas plans a few web searches, reads the top sources (and your Knowledge
+index), and writes a cited Markdown report with a Sources list — streamed
+live, and saved as a normal conversation you can export. Fetching happens
+without a per-source approval prompt (that's the point of an autonomous
+research run), but the same private-address protection applies.
+
+## 9. Writing editor
+
+**✍ Editor** in the sidebar opens a document workspace. Documents autosave
+locally. Select text and use **Improve / Shorten / Expand / Fix grammar**,
+**Continue** from the cursor, or **✏ Custom** for your own instruction; the
+AI suggestion streams into a panel and you **Accept** or **Reject** it. The
+editor is locked while a suggestion is pending so an accepted edit always
+lands where you selected.
+
+## 10. Blind arena
+
+**⚔ Arena** in the sidebar pits two models against the same prompt with their
+names hidden (the columns are randomised). Both answers stream side by side;
+you vote for the better one — A, B, tie, or both bad — and the names are then
+revealed. Votes build a local win/loss leaderboard so you can find the best
+model for your prompts over time.
+
+## 11. Model cookbook
+
+**📖 Cookbook** in the sidebar detects your CPU, RAM, and GPU and rates a
+curated list of local models as *fits your GPU / tight / CPU / too big* for
+your machine. If **Ollama** is running, click **Download** to pull a model
+straight in (with progress); it then appears in the normal model picker.
+Filter by capability (chat, tools, code, vision, embedding, reasoning).
+Downloading requires Ollama specifically; the recommendations show regardless.
+
+## 12. Appearance & accessibility
+
+**Settings → Appearance** (or the ☀/🌙 toggle in the sidebar):
+
+- **Theme:** System, Light, or Dark. System follows your OS.
+- **Colour vision:** Default, Protanopia, Deuteranopia, Tritanopia, or
+  Achromatopsia — each remaps status colours to a palette that stays legible
+  and distinguishable for that type. Status is never colour-only: every state
+  also has an icon and label.
+
+Preferences are saved on this device. The app also respects your OS
+*reduced motion* setting.
+
+## 13. VS Code integration
 
 Two independent connectors (Syrudas must be running for both):
 
@@ -191,7 +274,7 @@ models:
 Any other OpenAI-compatible tool works the same way — point it at the base
 URL and go.
 
-## 8. Running from source (developers)
+## 14. Running from source (developers)
 
 **Prerequisites:** Windows, Python 3.13 (`py` launcher), Node.js 20+.
 
@@ -210,7 +293,23 @@ Alternatives:
 cd web; npm run dev                                 # frontend HMR (proxies /api to :8040)
 ```
 
-Smoke tests (need Ollama running with `llama3.1:8b`):
+Offline test suites (no network, no model, no GPU needed — they drive the
+real code against fakes):
+
+```powershell
+.venv\Scripts\python.exe scripts\test_agent_safety.py   # tool gating + sandbox
+.venv\Scripts\python.exe scripts\test_host_guard.py     # localhost Host-guard
+.venv\Scripts\python.exe scripts\test_agent_memory.py   # memory
+.venv\Scripts\python.exe scripts\test_knowledge.py      # retrieval / RAG
+.venv\Scripts\python.exe scripts\test_research.py       # deep research pipeline
+.venv\Scripts\python.exe scripts\test_documents.py      # writing editor
+.venv\Scripts\python.exe scripts\test_arena.py          # blind arena
+.venv\Scripts\python.exe scripts\test_cookbook.py       # cookbook + fit ratings
+.venv\Scripts\python.exe scripts\test_hardware.py       # hardware detection
+.venv\Scripts\python.exe scripts\test_connectors.py     # Anthropic / Gemini
+```
+
+Live smoke tests (these need Ollama running with `llama3.1:8b`):
 
 ```powershell
 .venv\Scripts\python.exe scripts\smoke_provider.py   # provider adapter
@@ -222,7 +321,7 @@ Smoke tests (need Ollama running with `llama3.1:8b`):
 Layout reference is in [README.md](../README.md); design rationale in
 [WHITEPAPER.md](WHITEPAPER.md).
 
-## 9. Building the exe and releases
+## 15. Building the exe and releases
 
 ```powershell
 .\build_exe.ps1       # -> SyrudasAI.exe in the project root
@@ -237,7 +336,29 @@ Notes:
 - The build fails with *Access is denied* if a built exe is currently
   running (Windows locks running executables) — close Syrudas first.
 
-## 10. Troubleshooting
+## 16. Privacy & security
+
+Syrudas is local-first and single-user by design:
+
+- **No telemetry, no account, no cloud.** Outbound connections go only to the
+  model backends you configure and to URLs you (or an agent, under the rules
+  above) request.
+- **Local only.** The server binds to `127.0.0.1` and rejects requests with a
+  non-loopback `Host` header, so a web page you're visiting can't quietly
+  drive it. Web fetches (agent and research) refuse private/LAN/loopback
+  addresses, on every redirect.
+- **Consent-gated actions.** Shell commands, web fetches, and file writes
+  outside the workspace each require a per-call Approve/Deny. There's no
+  "always allow."
+- **Keys at rest.** Provider API keys live in `data\syrudas.db` in
+  **plaintext** (masked only when sent back to the UI). Anyone with read
+  access to your `data\` folder can read them — keep that folder as private as
+  the keys themselves. OS-keychain storage is future work.
+- **What's in `data\`:** conversations, settings, memories, indexed-document
+  text and embeddings, editor documents, and arena results — all local. Delete
+  the folder to reset everything.
+
+## 17. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
