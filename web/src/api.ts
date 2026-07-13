@@ -279,20 +279,36 @@ export interface ChatRequest {
   params?: GenParams
 }
 
-export async function streamChat(
-  req: ChatRequest,
+export interface ResearchRequest {
+  provider_id: string
+  model: string
+  question: string
+  params?: GenParams
+}
+
+export async function streamResearch(
+  req: ResearchRequest,
   onEvent: (ev: StreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const resp = await fetch('/api/chat', {
+  return streamNdjson('/api/research', req, onEvent, signal)
+}
+
+async function streamNdjson(
+  url: string,
+  body: unknown,
+  onEvent: (ev: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const resp = await fetch(url, {
     method: 'POST',
     headers: jsonHeaders,
-    body: JSON.stringify(req),
+    body: JSON.stringify(body),
     signal,
   })
   if (!resp.ok || !resp.body) {
-    const body = await resp.text()
-    throw new Error(errorMessage(resp.status, body))
+    const text = await resp.text()
+    throw new Error(errorMessage(resp.status, text))
   }
   const reader = resp.body.getReader()
   const decoder = new TextDecoder()
@@ -309,4 +325,12 @@ export async function streamChat(
     }
   }
   if (buffer.trim()) onEvent(JSON.parse(buffer) as StreamEvent)
+}
+
+export async function streamChat(
+  req: ChatRequest,
+  onEvent: (ev: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamNdjson('/api/chat', req, onEvent, signal)
 }

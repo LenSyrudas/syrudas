@@ -16,6 +16,9 @@ built around one idea: **any model backend plugs in through a small provider API
   Settings → Agent file access), web fetch, web search, and **persistent memory** —
   durable facts saved across conversations, reviewable and deletable under
   Settings → Agent memory
+- **Deep Research** — the 🔎 Research button runs a plan → web-search → read-sources →
+  synthesize pipeline and produces a cited Markdown report (with a Sources list) as a
+  normal conversation. Also searches your local Knowledge index. Progress streams live
 - **Knowledge (local RAG)** — index files and folders (text, code, PDFs) into a local
   embedding index under Settings → Knowledge; the agent's `knowledge_search` tool quotes
   from them, so you can chat with documents far bigger than the context window. Works

@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { getConversation, rewindConversation, streamChat, uploadAttachment } from '../api'
+import {
+  getConversation,
+  rewindConversation,
+  streamChat,
+  streamResearch,
+  uploadAttachment,
+} from '../api'
 import type { Attachment, ChatRequest, GenParams } from '../api'
 import type { Conversation, StreamEvent, ToolCall } from '../types'
 import Markdown from './Markdown'
@@ -76,10 +82,18 @@ export interface ToolItem {
   approvalId?: string
 }
 
+export interface ResearchItem {
+  kind: 'research'
+  phase: string
+  steps: string[]
+  done: boolean
+}
+
 export type ChatItem =
   | { kind: 'user'; content: string }
   | { kind: 'assistant'; content: string; streaming?: boolean }
   | ToolItem
+  | ResearchItem
   | { kind: 'error'; content: string }
 
 interface Props {
@@ -143,6 +157,9 @@ export default function ChatView({
   const [pending, setPending] = useState<Attachment[]>([])
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  // a research run's report has no rewind story (regenerate would delete it and
+  // reply with a plain, un-cited answer) - suppress edit/regenerate for it
+  const [isResearch, setIsResearch] = useState(false)
   // null until this instance owns a conversation: set by the load effect for
   // existing chats, or by the meta event when a send creates one mid-stream.
   // Must NOT be seeded from the prop, or the load effect's "already live"
@@ -171,6 +188,12 @@ export default function ChatView({
     setItems(itemsFromMessages(conv))
     onConversationLoaded(conv)
     return conv
+  }
+
+  function markResearchDone() {
+    setItems((prev) =>
+      prev.map((it) => (it.kind === 'research' && !it.done ? { ...it, done: true } : it)),
+    )
   }
 
   useEffect(() => {
@@ -208,6 +231,24 @@ export default function ChatView({
         }
         case 'tool_call': {
           if (ev.tool_call) next.push({ kind: 'tool', call: ev.tool_call, status: 'running' })
+          break
+        }
+        case 'research_status': {
+          const line = ev.detail || ev.phase || ''
+          if (last?.kind === 'research' && !last.done) {
+            next[next.length - 1] = {
+              ...last,
+              phase: ev.phase ?? last.phase,
+              steps: line ? [...last.steps, line] : last.steps,
+            }
+          } else {
+            next.push({
+              kind: 'research',
+              phase: ev.phase ?? 'researching',
+              steps: line ? [line] : [],
+              done: false,
+            })
+          }
           break
         }
         case 'approval_required': {
@@ -252,6 +293,7 @@ export default function ChatView({
           for (let i = 0; i < next.length; i++) {
             const it = next[i]
             if (it.kind === 'assistant' && it.streaming) next[i] = { ...it, streaming: false }
+            if (it.kind === 'research' && !it.done) next[i] = { ...it, done: true }
           }
           break
         }
@@ -290,6 +332,7 @@ export default function ChatView({
     const message = [typed, ...pending.map(fileBlock)].filter(Boolean).join('\n\n')
     setInput('')
     setPending([])
+    setIsResearch(false) // a normal turn makes this an ordinary conversation
     setItems((prev) => [...prev, { kind: 'user', content: message }])
     await runStream({
       conversation_id: convIdRef.current ?? undefined,
@@ -302,6 +345,34 @@ export default function ChatView({
       system_prompt: convIdRef.current ? undefined : systemPrompt || undefined,
       params: cleanParams(),
     })
+  }
+
+  async function research() {
+    const typed = input.trim()
+    if (!typed || streaming || busyRef.current || uploading || !providerId || !model) return
+    if (pending.length) return // research is web-only; attachments aren't read
+    setInput('')
+    setIsResearch(true)
+    setItems((prev) => [...prev, { kind: 'user', content: typed }])
+    setStreaming(true)
+    const controller = new AbortController()
+    abortRef.current = controller
+    try {
+      await streamResearch(
+        { provider_id: providerId, model, question: typed, params: cleanParams() },
+        handleEvent,
+        controller.signal,
+      )
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') {
+        setItems((prev) => [...prev, { kind: 'error', content: String(e) }])
+      }
+    } finally {
+      setStreaming(false)
+      abortRef.current = null
+      markResearchDone() // e.g. on abort, no 'done' event arrives
+      onStreamEnd()
+    }
   }
 
   async function regenerate() {
@@ -369,7 +440,8 @@ export default function ChatView({
   const canSend = Boolean(providerId && model)
   const lastUserIndex = items.map((it) => it.kind).lastIndexOf('user')
   const canRewind =
-    Boolean(convIdRef.current) && !streaming && !busy && canSend && lastUserIndex >= 0
+    Boolean(convIdRef.current) && !streaming && !busy && canSend && lastUserIndex >= 0 &&
+    !isResearch
 
   return (
     <div className="chat">
@@ -440,6 +512,19 @@ export default function ChatView({
                     item.approvalId && markToolResolved(item.approvalId, approved)
                   }
                 />
+              )
+            case 'research':
+              return (
+                <details key={i} className="research-card" open={!item.done}>
+                  <summary>
+                    {item.done ? '🔎 Research complete' : `🔎 Researching — ${item.phase}…`}
+                  </summary>
+                  <ol className="research-steps">
+                    {item.steps.map((s, si) => (
+                      <li key={si}>{s}</li>
+                    ))}
+                  </ol>
+                </details>
               )
             case 'error':
               return (
@@ -529,13 +614,29 @@ export default function ChatView({
               Stop
             </button>
           ) : (
-            <button
-              className="btn btn-primary"
-              disabled={!canSend || uploading || (!input.trim() && pending.length === 0)}
-              onClick={send}
-            >
-              Send
-            </button>
+            <>
+              {!convIdRef.current && (
+                <button
+                  className="btn"
+                  title={
+                    pending.length
+                      ? "Deep Research is web-only and doesn't read attachments - remove them to research"
+                      : 'Deep Research: search the web, read sources, and write a cited report'
+                  }
+                  disabled={!canSend || uploading || !input.trim() || pending.length > 0}
+                  onClick={research}
+                >
+                  🔎 Research
+                </button>
+              )}
+              <button
+                className="btn btn-primary"
+                disabled={!canSend || uploading || (!input.trim() && pending.length === 0)}
+                onClick={send}
+              >
+                Send
+              </button>
+            </>
           )}
         </div>
       </div>

@@ -32,6 +32,7 @@ export interface StreamEvent {
     | 'tool_call'
     | 'tool_result'
     | 'approval_required'
+    | 'research_status'
     | 'usage'
     | 'error'
     | 'done'
@@ -44,6 +45,8 @@ export interface StreamEvent {
   name?: string
   content?: string
   message?: string
+  phase?: string
+  detail?: string
   input_tokens?: number
   output_tokens?: number
 }

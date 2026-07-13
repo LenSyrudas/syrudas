@@ -112,3 +112,41 @@ async def chat(req: ChatRequest):
             await db.restore_messages(removed_rows)
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+
+
+class ResearchRequest(BaseModel):
+    provider_id: str
+    model: str
+    question: str
+    params: Optional[GenParams] = None
+
+
+@router.post("/research")
+async def research(body: ResearchRequest):
+    """Deep Research: a new conversation whose single reply is a cited report."""
+    inst = await db.get_provider_instance(body.provider_id)
+    if not inst:
+        raise HTTPException(400, "Unknown provider instance")
+    question = body.question.strip()
+    if not question:
+        raise HTTPException(400, "A research question is required")
+
+    conv = await db.create_conversation(body.provider_id, body.model, agent_mode=False)
+    await db.update_conversation(conv["id"], title=title_from(question))
+    conv = await db.get_conversation(conv["id"])
+    await db.add_message(conv["id"], "user", question)
+    provider = create_provider(inst["type_id"], inst["config"])
+
+    async def event_stream() -> AsyncIterator[str]:
+        yield _ndjson({"type": "meta", "conversation_id": conv["id"], "title": conv["title"]})
+        with runs.StreamGuard(conv["id"]) as guard:
+            try:
+                from ..research import stream_research
+                async for event in stream_research(
+                    conv, provider, question, params=body.params, gen=guard.gen):
+                    yield _ndjson(event)
+            except Exception as exc:
+                yield _ndjson({"type": "error", "message": f"Server error: {exc}"})
+                yield _ndjson({"type": "done"})
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")

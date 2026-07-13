@@ -368,6 +368,33 @@ body {
   color: var(--text-dim);
 }
 
+.research-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.research-card summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.research-steps {
+  margin: 8px 0 2px;
+  padding-left: 20px;
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.research-steps li {
+  word-break: break-word;
+}
+
 .cursor {
   animation: blink 1s step-start infinite;
   color: var(--accent);
