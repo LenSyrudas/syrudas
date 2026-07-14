@@ -28,9 +28,11 @@ on it and build my own releases."
 **Requirements:** Windows 10/11. Windows 11 already includes the WebView2
 runtime the app window uses.
 
-1. Unzip `SyrudasAI-vX.Y.Z-win64.zip` into a folder of its own, e.g.
-   `C:\SyrudasAI`. The app stores everything (`data\`, `plugins\`) next to
-   the exe, so give it a real home — not your Downloads folder.
+1. Unzip `SyrudasAI-vX.Y.Z-win64.zip`. It contains a single **`SyrudasAI`**
+   folder — move that folder wherever you want to keep it (e.g.
+   `C:\SyrudasAI`), not your Downloads folder. The app stores everything
+   (`data\`, `plugins\`) inside that folder, so keep it together. There's
+   nothing to rename.
 2. Double-click **SyrudasAI.exe**.
    - If Windows shows *"Windows protected your PC"*, that is SmartScreen
      being cautious about unsigned apps: click **More info → Run anyway**.
