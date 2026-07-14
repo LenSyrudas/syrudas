@@ -15,26 +15,32 @@ if (-not (Test-Path "SyrudasAI.exe")) { throw "build_exe.ps1 did not produce Syr
 
 $stage = Join-Path $env:TEMP "syrudas-release-stage"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
-New-Item -ItemType Directory $stage | Out-Null
+# Everything goes inside a single, version-free "SyrudasAI" folder so that
+# unzipping yields a ready-to-use folder the user can drop anywhere - nothing
+# to rename or reorganize, and the name stays stable across version upgrades.
+$appdir = Join-Path $stage "SyrudasAI"
+New-Item -ItemType Directory $appdir | Out-Null
 
-Copy-Item "SyrudasAI.exe" $stage
-Copy-Item "LICENSE" (Join-Path $stage "LICENSE.txt")
-Copy-Item "packaging\README.txt" $stage
+Copy-Item "SyrudasAI.exe" $appdir
+Copy-Item "LICENSE" (Join-Path $appdir "LICENSE.txt")
+Copy-Item "packaging\README.txt" $appdir
 if (Test-Path "docs\Syrudas-AI-Whitepaper.pdf") {
-    Copy-Item "docs\Syrudas-AI-Whitepaper.pdf" $stage
+    Copy-Item "docs\Syrudas-AI-Whitepaper.pdf" $appdir
 }
 if (Test-Path "docs\SETUP.md") {
-    Copy-Item "docs\SETUP.md" (Join-Path $stage "SETUP.txt")
+    Copy-Item "docs\SETUP.md" (Join-Path $appdir "SETUP.txt")
 }
 # optional provider connectors (Anthropic, Gemini, ...) ship as drop-in
 # plugins next to the exe - configure with an API key in Settings to activate
-New-Item -ItemType Directory (Join-Path $stage "plugins") | Out-Null
-Copy-Item "plugins\*.py" (Join-Path $stage "plugins")
+New-Item -ItemType Directory (Join-Path $appdir "plugins") | Out-Null
+Copy-Item "plugins\*.py" (Join-Path $appdir "plugins")
 
 New-Item -ItemType Directory "release" -Force | Out-Null
 $zip = "release\SyrudasAI-v$version-win64.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path "$stage\*" -DestinationPath $zip
+# archive the folder itself (not its contents) so the zip has a single
+# top-level "SyrudasAI\" entry
+Compress-Archive -Path $appdir -DestinationPath $zip
 Remove-Item $stage -Recurse -Force
 
 Write-Host ""
