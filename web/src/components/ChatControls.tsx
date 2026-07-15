@@ -29,6 +29,8 @@ export function TuningPopover({
       <button
         className={`btn btn-compact ${active ? 'active-control' : ''}`}
         title="Generation settings (temperature, max tokens)"
+        aria-label="Generation settings (temperature, max tokens)"
+        aria-pressed={open}
         onClick={() => setOpen(!open)}
       >
         🎛{active ? '•' : ''}
@@ -121,7 +123,7 @@ export function PersonaPanel({
         <span className="muted">
           Sets the assistant's role for this conversation. Applies from the next message.
         </span>
-        <button className="icon-btn" title="Close" onClick={onClose}>
+        <button className="icon-btn" title="Close" aria-label="Close system prompt panel" onClick={onClose}>
           ✕
         </button>
       </div>
@@ -137,7 +139,12 @@ export function PersonaPanel({
             <button className="preset-apply" title={p.prompt} onClick={() => onChange(p.prompt)}>
               {p.name}
             </button>
-            <button className="icon-btn" title="Delete preset" onClick={() => deletePreset(p.name)}>
+            <button
+              className="icon-btn"
+              title="Delete preset"
+              aria-label={`Delete preset ${p.name}`}
+              onClick={() => deletePreset(p.name)}
+            >
               ✕
             </button>
           </span>
