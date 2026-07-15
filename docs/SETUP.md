@@ -237,6 +237,13 @@ Downloading requires Ollama specifically; the recommendations show regardless.
 Preferences are saved on this device. The app also respects your OS
 *reduced motion* setting.
 
+**Screen reader & keyboard:** every button has an accessible name (icon-only
+ones included), and the conversation and document lists are keyboard-focusable
+— so the workspace is usable without a mouse or with a screen reader.
+
+**Picks up where you left off:** the view you were in and the conversation you
+had open are remembered, so relaunching Syrudas returns you to the same place.
+
 ## 13. VS Code integration
 
 Two independent connectors (Syrudas must be running for both):
