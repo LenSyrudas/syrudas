@@ -61,6 +61,7 @@ function CopyButton({ text, className = '' }: { text: string; className?: string
     <button
       className={`icon-btn copy-btn ${copied ? 'copied' : ''} ${className}`}
       title="Copy message text"
+      aria-label={copied ? 'Copied' : 'Copy message text'}
       onClick={async () => {
         if (await copyToClipboard(text)) {
           setCopied(true)
@@ -483,6 +484,7 @@ export default function ChatView({
                     <button
                       className="icon-btn msg-action"
                       title="Edit this message (removes the replies after it)"
+                      aria-label="Edit this message (removes the replies after it)"
                       onClick={editLast}
                     >
                       ✎
@@ -567,6 +569,7 @@ export default function ChatView({
                 <button
                   className="icon-btn"
                   title="Remove attachment"
+                  aria-label={`Remove attachment ${a.name}`}
                   onClick={() => setPending((prev) => prev.filter((_, pi) => pi !== i))}
                 >
                   ✕
@@ -590,6 +593,7 @@ export default function ChatView({
           <button
             className="btn attach-btn"
             title="Attach files (text, code, CSV, JSON, PDF) - or drag & drop"
+            aria-label="Attach files"
             disabled={!canSend || streaming}
             onClick={() => fileInputRef.current?.click()}
           >

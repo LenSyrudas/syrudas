@@ -145,6 +145,8 @@ function App() {
               <button
                 className={`btn btn-compact ${systemPrompt ? 'active-control' : ''}`}
                 title="System prompt / persona"
+                aria-label="System prompt / persona"
+                aria-pressed={personaOpen}
                 onClick={() => setPersonaOpen(!personaOpen)}
               >
                 🎭{systemPrompt ? '•' : ''}
@@ -153,6 +155,7 @@ function App() {
                 <a
                   className="btn btn-compact"
                   title="Export conversation as Markdown"
+                  aria-label="Export conversation as Markdown"
                   href={exportConversationUrl(activeId)}
                   download
                 >

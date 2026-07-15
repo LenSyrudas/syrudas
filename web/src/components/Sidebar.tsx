@@ -16,6 +16,7 @@ function ThemeToggle() {
     <button
       className="btn btn-ghost theme-toggle"
       title={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+      aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
       // read the live attribute (not lagged state) so rapid clicks stay correct
       onClick={() => setAppearance(isDark() ? 'light' : 'dark')}
     >
@@ -68,7 +69,16 @@ export default function Sidebar({
           <div
             key={c.id}
             className={`conv-item ${c.id === activeId && !settingsActive ? 'active' : ''}`}
+            role="button"
+            tabIndex={0}
+            aria-current={c.id === activeId && !settingsActive}
             onClick={() => onSelect(c.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onSelect(c.id)
+              }
+            }}
           >
             <span className="conv-title" title={c.title}>
               {c.agent_mode ? '🛠 ' : ''}
@@ -77,6 +87,7 @@ export default function Sidebar({
             <button
               className="icon-btn conv-delete"
               title="Delete conversation"
+              aria-label={`Delete conversation ${c.title}`}
               onClick={(e) => {
                 e.stopPropagation()
                 if (confirm(`Delete "${c.title}"?`)) {
