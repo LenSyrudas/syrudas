@@ -205,7 +205,16 @@ export default function EditorView({ providerId, model }: Props) {
           <div
             key={d.id}
             className={`doc-item ${d.id === activeId ? 'active' : ''}`}
+            role="button"
+            tabIndex={0}
+            aria-current={d.id === activeId}
             onClick={() => openDoc(d.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                openDoc(d.id)
+              }
+            }}
           >
             <span className="doc-item-title" title={d.title}>
               {d.title || 'Untitled'}
@@ -213,6 +222,7 @@ export default function EditorView({ providerId, model }: Props) {
             <button
               className="icon-btn"
               title="Delete document"
+              aria-label={`Delete document ${d.title || 'Untitled'}`}
               onClick={(e) => {
                 e.stopPropagation()
                 if (confirm(`Delete "${d.title}"?`)) {
