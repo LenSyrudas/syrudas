@@ -19,13 +19,23 @@ function loadGenParams(): GenParams {
   }
 }
 
+type View = 'chat' | 'settings' | 'arena' | 'editor' | 'cookbook'
+const VIEWS: View[] = ['chat', 'settings', 'arena', 'editor', 'cookbook']
+
 function App() {
-  const [view, setView] = useState<'chat' | 'settings' | 'arena' | 'editor' | 'cookbook'>('chat')
+  // restore where the user left off: the last view and open conversation
+  const [view, setView] = useState<View>(() => {
+    const v = localStorage.getItem('syrudas.view') as View | null
+    return v && VIEWS.includes(v) ? v : 'chat'
+  })
   const [conversations, setConversations] = useState<Conversation[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [convsLoaded, setConvsLoaded] = useState(false)
+  const [activeId, setActiveId] = useState<string | null>(
+    () => localStorage.getItem('syrudas.activeId') || null,
+  )
   // Remount ChatView only when the user switches chats — NOT when a new
   // conversation gets its id mid-stream, or the live stream display is lost.
-  const [chatKey, setChatKey] = useState('new')
+  const [chatKey, setChatKey] = useState(() => localStorage.getItem('syrudas.activeId') || 'new')
   const [providers, setProviders] = useState<ProviderInstance[]>([])
   const [providerId, setProviderId] = useState<string>(
     () => localStorage.getItem('syrudas.providerId') ?? '',
@@ -39,7 +49,12 @@ function App() {
   const [personaOpen, setPersonaOpen] = useState(false)
 
   const refreshConversations = useCallback(() => {
-    listConversations().then(setConversations).catch(console.error)
+    listConversations()
+      .then((list) => {
+        setConversations(list)
+        setConvsLoaded(true)
+      })
+      .catch(console.error)
   }, [])
 
   const refreshProviders = useCallback(() => {
@@ -57,6 +72,25 @@ function App() {
     refreshConversations()
     refreshProviders()
   }, [refreshConversations, refreshProviders])
+
+  useEffect(() => {
+    localStorage.setItem('syrudas.view', view)
+  }, [view])
+  useEffect(() => {
+    if (activeId) localStorage.setItem('syrudas.activeId', activeId)
+    else localStorage.removeItem('syrudas.activeId')
+  }, [activeId])
+  // once conversations have loaded, drop a restored activeId whose conversation
+  // was deleted in a previous session (otherwise ChatView 404s on load)
+  const restoreChecked = useRef(false)
+  useEffect(() => {
+    if (!convsLoaded || restoreChecked.current) return
+    restoreChecked.current = true
+    if (activeId && !conversations.some((c) => c.id === activeId)) {
+      setActiveId(null)
+      setChatKey(`new-${Date.now()}`)
+    }
+  }, [convsLoaded, conversations, activeId])
 
   useEffect(() => {
     localStorage.setItem('syrudas.providerId', providerId)
