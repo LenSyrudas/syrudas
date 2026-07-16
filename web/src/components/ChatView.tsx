@@ -7,6 +7,7 @@ import {
   uploadAttachment,
 } from '../api'
 import type { Attachment, ChatRequest, GenParams } from '../api'
+import { copyToClipboard } from '../clipboard'
 import type { Conversation, StreamEvent, ToolCall } from '../types'
 import Markdown from './Markdown'
 import ToolCallCard from './ToolCallCard'
@@ -29,28 +30,6 @@ function parseUserContent(content: string): { text: string; files: { name: strin
 
 function fileBlock(a: Attachment): string {
   return `<file name="${a.name.replace(/"/g, "'")}">\n${a.content}\n</file>`
-}
-
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // fall through to the legacy path
-  }
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.position = 'fixed'
-  ta.style.opacity = '0'
-  document.body.appendChild(ta)
-  ta.select()
-  try {
-    return document.execCommand('copy')
-  } finally {
-    ta.remove()
-  }
 }
 
 function CopyButton({ text, className = '' }: { text: string; className?: string }) {
@@ -90,12 +69,25 @@ export interface ResearchItem {
   done: boolean
 }
 
+export interface Usage {
+  input?: number
+  output?: number
+}
+
 export type ChatItem =
   | { kind: 'user'; content: string }
-  | { kind: 'assistant'; content: string; streaming?: boolean }
+  | { kind: 'assistant'; content: string; streaming?: boolean; usage?: Usage }
   | ToolItem
   | ResearchItem
   | { kind: 'error'; content: string }
+
+/** "1,234 in · 567 out" — omits either side the backend didn't report. */
+function usageLabel(u: Usage): string {
+  const parts: string[] = []
+  if (u.input != null) parts.push(`${u.input.toLocaleString()} in`)
+  if (u.output != null) parts.push(`${u.output.toLocaleString()} out`)
+  return parts.join(' · ')
+}
 
 interface Props {
   conversationId: string | null
@@ -105,7 +97,9 @@ interface Props {
   genParams: GenParams
   systemPrompt: string
   onConversationCreated: (id: string) => void
-  onConversationLoaded: (conv: Conversation) => void
+  // `initial` is true only for a genuine open (the mount load), false for
+  // editLast/regenerate resyncs — lets the parent restore the model just once.
+  onConversationLoaded: (conv: Conversation, initial: boolean) => void
   onStreamEnd: () => void
 }
 
@@ -184,10 +178,10 @@ export default function ChatView({
     setUploading(false)
   }
 
-  async function loadConversation(id: string) {
+  async function loadConversation(id: string, initial = false) {
     const conv = await getConversation(id)
     setItems(itemsFromMessages(conv))
-    onConversationLoaded(conv)
+    onConversationLoaded(conv, initial)
     return conv
   }
 
@@ -202,7 +196,7 @@ export default function ChatView({
     // If this component created the conversation mid-stream, items are already live
     if (convIdRef.current === conversationId) return
     convIdRef.current = conversationId
-    loadConversation(conversationId).catch(console.error)
+    loadConversation(conversationId, true).catch(console.error)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId])
 
@@ -282,6 +276,21 @@ export default function ChatView({
               ...tool,
               result: ev.content ?? '',
               status: tool.status === 'denied' ? 'denied' : 'done',
+            }
+          }
+          break
+        }
+        case 'usage': {
+          // The usage chunk arrives at the end of a step's stream, right after
+          // its text — so it belongs to the turn still being generated (the
+          // last item, while it's streaming). In agent mode a tool-only step
+          // produces no assistant turn; drop its usage rather than misattribute
+          // it to an earlier answer.
+          if (ev.input_tokens == null && ev.output_tokens == null) break
+          if (last?.kind === 'assistant' && last.streaming) {
+            next[next.length - 1] = {
+              ...last,
+              usage: { input: ev.input_tokens, output: ev.output_tokens },
             }
           }
           break
@@ -501,6 +510,11 @@ export default function ChatView({
                   {!item.streaming && (
                     <div className="msg-toolbar">
                       <CopyButton text={item.content} />
+                      {item.usage && usageLabel(item.usage) && (
+                        <span className="msg-usage" title="Prompt / completion tokens">
+                          {usageLabel(item.usage)}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>

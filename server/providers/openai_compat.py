@@ -103,6 +103,9 @@ class OpenAICompatProvider(ModelProvider):
             "model": model,
             "messages": _wire_messages(messages),
             "stream": True,
+            # ask for token counts in the final stream chunk; Ollama/LM Studio
+            # send them anyway, OpenAI proper only does with this flag set
+            "stream_options": {"include_usage": True},
         }
         if tools:
             body["tools"] = _wire_tools(tools)
