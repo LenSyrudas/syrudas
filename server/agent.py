@@ -105,12 +105,15 @@ async def stream_agent_chat(
         text_parts: list[str] = []
         tool_calls: list[ToolCall] = []
         errored = False
+        usage = None
 
         async for ev in provider.chat(conv["model"], history, tools=specs, params=params):
             if ev.type == "text_delta" and ev.text:
                 text_parts.append(ev.text)
             elif ev.type == "tool_call" and ev.tool_call:
                 tool_calls.append(ev.tool_call)
+            elif ev.type == "usage":
+                usage = ev
             elif ev.type == "error":
                 errored = True
             if ev.type != "done":
@@ -121,6 +124,8 @@ async def stream_agent_chat(
             await persist_if_current(
                 conv["id"], gen, "assistant", text,
                 tool_calls=[tc.model_dump() for tc in tool_calls] or None,
+                input_tokens=usage.input_tokens if usage else None,
+                output_tokens=usage.output_tokens if usage else None,
             )
             history.append(Message(
                 role="assistant", content=text, tool_calls=tool_calls or None))

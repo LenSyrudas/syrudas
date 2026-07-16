@@ -471,16 +471,22 @@ body {
   position: relative;
 }
 
+/* opacity (not visibility) keeps these actions focusable and in the tab order,
+   so keyboard users can reach them; they fade in on hover or keyboard focus */
 .msg-action {
-  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
   align-self: center;
   font-size: 14px;
   margin-right: 4px;
   order: -1;
 }
 
-.msg.user:hover .msg-action {
-  visibility: visible;
+.msg.user:hover .msg-action,
+.msg-action:focus-visible,
+.msg-action.copied {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* ---------- chat ---------- */
@@ -539,21 +545,26 @@ body {
   line-height: 1.55;
 }
 
-/* reserved (invisible) row under assistant messages so the copy button
-   appearing on hover never shifts the layout */
+/* the toolbar row is always present (reserving height so nothing shifts); its
+   copy button fades in on hover or keyboard focus while the token readout stays
+   visible. opacity keeps the button focusable and in the tab order. */
 .msg-toolbar {
-  visibility: hidden;
   margin-top: 2px;
 }
 
-.msg.assistant:hover .msg-toolbar {
-  visibility: visible;
+.msg-toolbar .copy-btn {
+  opacity: 0;
+  pointer-events: none;
 }
 
-/* token readout stays visible even though the toolbar row hides its actions
-   until hover — child visibility overrides the hidden parent */
+.msg.assistant:hover .msg-toolbar .copy-btn,
+.msg-toolbar .copy-btn:focus-visible,
+.msg-toolbar .copy-btn.copied {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .msg-usage {
-  visibility: visible;
   margin-left: 8px;
   font-size: 11px;
   color: var(--text-dim);
@@ -1303,7 +1314,6 @@ body {
 }
 
 .copy-btn.copied {
-  visibility: visible;
   color: var(--ok);
 }
 

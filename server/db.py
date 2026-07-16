@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS messages (
     content TEXT NOT NULL DEFAULT '',
     tool_calls TEXT,
     tool_call_id TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    input_tokens INTEGER,
+    output_tokens INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
 CREATE TABLE IF NOT EXISTS provider_instances (
@@ -107,8 +109,18 @@ async def get_db() -> aiosqlite.Connection:
         _conn.row_factory = aiosqlite.Row
         await _conn.execute("PRAGMA foreign_keys = ON")
         await _conn.executescript(SCHEMA)
+        await _add_missing_columns(_conn)
         await _conn.commit()
     return _conn
+
+
+async def _add_missing_columns(conn: aiosqlite.Connection) -> None:
+    """Bring databases created before a column was added up to the current
+    schema (CREATE TABLE IF NOT EXISTS won't alter an existing table)."""
+    cols = {r["name"] for r in await conn.execute_fetchall("PRAGMA table_info(messages)")}
+    for col in ("input_tokens", "output_tokens"):
+        if col not in cols:
+            await conn.execute(f"ALTER TABLE messages ADD COLUMN {col} INTEGER")  # noqa: S608
 
 
 async def close_db() -> None:
@@ -169,16 +181,19 @@ async def delete_conversation(conv_id: str) -> None:
 
 async def add_message(conversation_id: str, role: str, content: str = "",
                       tool_calls: Optional[list[dict]] = None,
-                      tool_call_id: Optional[str] = None) -> dict:
+                      tool_call_id: Optional[str] = None,
+                      input_tokens: Optional[int] = None,
+                      output_tokens: Optional[int] = None) -> dict:
     db = await get_db()
     msg = {
         "id": new_id(), "conversation_id": conversation_id, "role": role, "content": content,
         "tool_calls": json.dumps(tool_calls) if tool_calls else None,
         "tool_call_id": tool_call_id, "created_at": now(),
+        "input_tokens": input_tokens, "output_tokens": output_tokens,
     }
     await db.execute(
-        "INSERT INTO messages (id,conversation_id,role,content,tool_calls,tool_call_id,created_at)"
-        " VALUES (:id,:conversation_id,:role,:content,:tool_calls,:tool_call_id,:created_at)",
+        "INSERT INTO messages (id,conversation_id,role,content,tool_calls,tool_call_id,created_at,input_tokens,output_tokens)"
+        " VALUES (:id,:conversation_id,:role,:content,:tool_calls,:tool_call_id,:created_at,:input_tokens,:output_tokens)",
         msg,
     )
     await db.execute("UPDATE conversations SET updated_at = ? WHERE id = ?",
@@ -234,8 +249,8 @@ async def restore_messages(rows: list[dict]) -> None:
     db = await get_db()
     for r in rows:
         await db.execute(
-            "INSERT OR IGNORE INTO messages (id,conversation_id,role,content,tool_calls,tool_call_id,created_at)"
-            " VALUES (:id,:conversation_id,:role,:content,:tool_calls,:tool_call_id,:created_at)",
+            "INSERT OR IGNORE INTO messages (id,conversation_id,role,content,tool_calls,tool_call_id,created_at,input_tokens,output_tokens)"
+            " VALUES (:id,:conversation_id,:role,:content,:tool_calls,:tool_call_id,:created_at,:input_tokens,:output_tokens)",
             r,
         )
     await db.commit()
