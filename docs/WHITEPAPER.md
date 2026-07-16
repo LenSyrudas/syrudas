@@ -1,6 +1,6 @@
 # Syrudas AI: A Local-First AI Workspace with Pluggable Model Providers
 
-**Version 0.7.2 · July 2026 · Len · MIT License**
+**Version 0.7.3 · July 2026 · Len · MIT License**
 
 ---
 
@@ -232,6 +232,19 @@ This is the mechanism that stops a "zombie" stream (client gone, cancellation
 not yet observed) from orphaning tool messages or resurrecting rows in a
 conversation the user already deleted. The same guard protects the research
 pipeline, which also persists into a conversation.
+
+Treating the model as a plugin has a consequence for conversation state that is
+easy to miss: a workspace whose model is interchangeable will accumulate threads
+answered by *different* models. A conversation therefore records the provider
+and model it last used, and reopening one restores that pick. Without it, a
+global picker silently applies whatever model was last chosen anywhere to a
+thread every previous turn answered with another — a wrong-model reply that
+leaves no trace in the transcript. The same persistence instinct applies to the
+`usage` event: the token counts a provider reports at the end of a turn are
+stored on the assistant message they belong to, so per-reply accounting survives
+a reload instead of living only in the open tab. In agent mode, where one turn
+may make several provider calls, counts are recorded per step against the
+message that step produced.
 
 Long conversations are trimmed to fit the model's context before each turn: the
 system prompt and the newest messages always survive, the oldest turns fall off
@@ -522,9 +535,13 @@ Accessibility extends past colour. Every interactive control carries an
 accessible name — icon-only buttons included, each labelled with the action and
 its target (for example, the specific conversation a delete button removes) —
 and the conversation and document lists, which are visually rows, are exposed
-as keyboard-focusable buttons with the active row marked. The workspace is
-therefore navigable and operable with a screen reader and without a mouse, not
-only readable under an adapted palette.
+as keyboard-focusable buttons with the active row marked. Actions that appear on
+hover — the per-message copy and edit controls, the per-code-block copy button —
+are faded rather than hidden outright, because a control hidden with
+`visibility` is removed from the tab order entirely and can never receive the
+focus that would reveal it; kept at zero opacity they remain focusable and
+appear on keyboard focus. The workspace is therefore navigable and operable with
+a screen reader and without a mouse, not only readable under an adapted palette.
 
 ## 17. Testing and assurance
 

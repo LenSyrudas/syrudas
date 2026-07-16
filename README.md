@@ -3,10 +3,14 @@
 A self-hosted AI workspace in the spirit of [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus),
 built around one idea: **any model backend plugs in through a small provider API**.
 
-- **Chat** — streaming responses, markdown + syntax highlighting, conversation history (SQLite),
-  file attachments (drag & drop or 📎: code, text, CSV, JSON, logs, PDFs), regenerate/edit
-  last message, per-conversation system prompts with saved presets, temperature/max-token
-  controls, markdown export, automatic context-window trimming
+- **Chat** — streaming responses, markdown + syntax highlighting with a copy button on every
+  code block, conversation history (SQLite) with search and rename, file attachments (drag &
+  drop or 📎: code, text, CSV, JSON, logs, PDFs), regenerate/edit last message, copy any
+  message, per-conversation system prompts with saved presets, temperature/max-token
+  controls, per-reply token counts, markdown export, automatic context-window trimming
+- **Remembers the model per chat** — each conversation records the provider and model it used
+  and restores them when reopened, so a reply never silently comes from a different model
+  than the rest of the thread
 - **Any model** — provider *types* are Python plugins; provider *instances* are configured in the UI.
   The builtin OpenAI-compatible adapter covers Ollama, LM Studio, llama.cpp server, vLLM,
   OpenRouter, and OpenAI itself; optional drop-in connectors for **Anthropic (Claude)** and
@@ -38,8 +42,9 @@ built around one idea: **any model backend plugs in through a small provider API
 - **Themes & accessibility** — light / dark / system appearance plus colour-vision modes
   (protanopia, deuteranopia, tritanopia, achromatopsia) under Settings → Appearance, a quick
   theme toggle in the sidebar, and `prefers-reduced-motion` support. Status colours always
-  pair with icons and labels; every control has an accessible name and the lists are
-  keyboard-navigable, so it works with a screen reader and without a mouse
+  pair with icons and labels; every control has an accessible name, the lists are
+  keyboard-navigable, and the actions that appear on hover (copy, edit) stay reachable by
+  keyboard, so it works with a screen reader and without a mouse
 - **Picks up where you left off** — the open view and conversation are restored on relaunch
 - Local-first: FastAPI + React, SQLite, no telemetry, keys never leave your machine
 
