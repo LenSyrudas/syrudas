@@ -15,7 +15,7 @@ import logging
 from . import db, runs
 from .config import MAX_HISTORY_CHARS
 from .providers.base import ModelProvider
-from .schemas import GenParams, Message, ToolCall
+from .schemas import GenParams, Message, StreamEvent, ToolCall
 
 log = logging.getLogger(__name__)
 
@@ -99,12 +99,19 @@ async def stream_plain_chat(
         gen = runs.generation(conv["id"])
     history = await build_history(conv)
     text_parts: list[str] = []
+    usage: Optional[StreamEvent] = None
     async for ev in provider.chat(conv["model"], history, params=params):
         if ev.type == "text_delta" and ev.text:
             text_parts.append(ev.text)
+        elif ev.type == "usage":
+            usage = ev
         yield ev.model_dump(exclude_none=True)
     if text_parts:  # persist partial output even if the stream errored midway
-        await persist_if_current(conv["id"], gen, "assistant", "".join(text_parts))
+        await persist_if_current(
+            conv["id"], gen, "assistant", "".join(text_parts),
+            input_tokens=usage.input_tokens if usage else None,
+            output_tokens=usage.output_tokens if usage else None,
+        )
 
 
 def title_from(text: str, limit: int = 48) -> str:

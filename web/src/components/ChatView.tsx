@@ -109,7 +109,14 @@ function itemsFromMessages(conv: Conversation): ChatItem[] {
     if (m.role === 'user') {
       loaded.push({ kind: 'user', content: m.content })
     } else if (m.role === 'assistant') {
-      if (m.content) loaded.push({ kind: 'assistant', content: m.content })
+      if (m.content) {
+        // restore the persisted token counts so the readout survives a reload
+        const usage: Usage | undefined =
+          m.input_tokens != null || m.output_tokens != null
+            ? { input: m.input_tokens ?? undefined, output: m.output_tokens ?? undefined }
+            : undefined
+        loaded.push({ kind: 'assistant', content: m.content, usage })
+      }
       for (const tc of m.tool_calls ?? []) {
         loaded.push({ kind: 'tool', call: tc, status: 'done' })
       }

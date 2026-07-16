@@ -11,6 +11,8 @@ export interface DbMessage {
   tool_calls: ToolCall[] | null
   tool_call_id: string | null
   created_at: string
+  input_tokens: number | null
+  output_tokens: number | null
 }
 
 export interface Conversation {
