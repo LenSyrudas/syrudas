@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { deleteConversation } from '../api'
+import { useEffect, useRef, useState } from 'react'
+import { deleteConversation, patchConversation } from '../api'
 import type { Conversation } from '../types'
 import { setAppearance, THEME_EVENT } from '../theme'
 
@@ -31,6 +31,7 @@ interface Props {
   onSelect: (id: string) => void
   onNew: () => void
   onDeleted: (id: string) => void
+  onRenamed: () => void
   onSettings: () => void
   onArena: () => void
   onEditor: () => void
@@ -47,6 +48,7 @@ export default function Sidebar({
   onSelect,
   onNew,
   onDeleted,
+  onRenamed,
   onSettings,
   onArena,
   onEditor,
@@ -56,6 +58,36 @@ export default function Sidebar({
   editorActive,
   cookbookActive,
 }: Props) {
+  const [query, setQuery] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  // Escape cancels via a flag the shared blur-commit handler reads, so both
+  // Enter/blur (save) and Esc (discard) funnel through one commit path.
+  const cancelRef = useRef(false)
+
+  const q = query.trim().toLowerCase()
+  const shown = q
+    ? conversations.filter((c) => c.title.toLowerCase().includes(q))
+    : conversations
+
+  function startRename(c: Conversation) {
+    cancelRef.current = false
+    setDraft(c.title)
+    setEditingId(c.id)
+  }
+
+  function commitRename(c: Conversation) {
+    const cancelled = cancelRef.current
+    cancelRef.current = false
+    setEditingId(null)
+    if (cancelled) return
+    const title = draft.trim()
+    if (!title || title === c.title) return
+    patchConversation(c.id, { title })
+      .then(onRenamed)
+      .catch((err) => alert(String(err)))
+  }
+
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
@@ -63,9 +95,19 @@ export default function Sidebar({
         <button className="btn btn-primary" onClick={onNew}>
           + New chat
         </button>
+        {conversations.length > 0 && (
+          <input
+            className="conv-search"
+            type="search"
+            placeholder="Search conversations…"
+            aria-label="Search conversations"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        )}
       </div>
       <nav className="conv-list">
-        {conversations.map((c) => (
+        {shown.map((c) => (
           <div
             key={c.id}
             className={`conv-item ${c.id === activeId && !settingsActive ? 'active' : ''}`}
@@ -80,28 +122,68 @@ export default function Sidebar({
               }
             }}
           >
-            <span className="conv-title" title={c.title}>
-              {c.agent_mode ? '🛠 ' : ''}
-              {c.title}
-            </span>
-            <button
-              className="icon-btn conv-delete"
-              title="Delete conversation"
-              aria-label={`Delete conversation ${c.title}`}
-              onClick={(e) => {
-                e.stopPropagation()
-                if (confirm(`Delete "${c.title}"?`)) {
-                  deleteConversation(c.id)
-                    .then(() => onDeleted(c.id))
-                    .catch((err) => alert(String(err)))
-                }
-              }}
-            >
-              ✕
-            </button>
+            {editingId === c.id ? (
+              <input
+                className="conv-rename-input"
+                value={draft}
+                autoFocus
+                aria-label={`Rename conversation ${c.title}`}
+                onFocus={(e) => e.currentTarget.select()}
+                onChange={(e) => setDraft(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    e.currentTarget.blur()
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault()
+                    cancelRef.current = true
+                    e.currentTarget.blur()
+                  }
+                }}
+                onBlur={() => commitRename(c)}
+              />
+            ) : (
+              <>
+                <span className="conv-title" title={c.title}>
+                  {c.agent_mode ? '🛠 ' : ''}
+                  {c.title}
+                </span>
+                <button
+                  className="icon-btn conv-rename"
+                  title="Rename conversation"
+                  aria-label={`Rename conversation ${c.title}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    startRename(c)
+                  }}
+                >
+                  ✎
+                </button>
+                <button
+                  className="icon-btn conv-delete"
+                  title="Delete conversation"
+                  aria-label={`Delete conversation ${c.title}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (confirm(`Delete "${c.title}"?`)) {
+                      deleteConversation(c.id)
+                        .then(() => onDeleted(c.id))
+                        .catch((err) => alert(String(err)))
+                    }
+                  }}
+                >
+                  ✕
+                </button>
+              </>
+            )}
           </div>
         ))}
         {conversations.length === 0 && <div className="conv-empty">No conversations yet</div>}
+        {conversations.length > 0 && shown.length === 0 && (
+          <div className="conv-empty">No conversations match “{query.trim()}”</div>
+        )}
       </nav>
       <div className="sidebar-foot">
         <button className={`btn btn-ghost ${cookbookActive ? 'active' : ''}`} onClick={onCookbook}>

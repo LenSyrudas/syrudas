@@ -47,6 +47,15 @@ function App() {
   const [genParams, setGenParams] = useState<GenParams>(loadGenParams)
   const [systemPrompt, setSystemPrompt] = useState('')
   const [personaOpen, setPersonaOpen] = useState(false)
+  // The just-opened conversation's stored provider/model, applied to the picker
+  // once providers have loaded (see the reconcile effect below). Decoupled from
+  // the load callback so a cold-reload restore isn't lost to an empty providers
+  // list, and set only on a genuine open — not editLast/regenerate resyncs — so
+  // a manual mid-conversation model switch stands.
+  const [restoreTarget, setRestoreTarget] = useState<{
+    provider_id: string | null
+    model: string | null
+  } | null>(null)
 
   const refreshConversations = useCallback(() => {
     listConversations()
@@ -98,6 +107,18 @@ function App() {
   useEffect(() => {
     localStorage.setItem('syrudas.model', model)
   }, [model])
+  // apply a pending conversation model-restore once providers are available;
+  // re-runs when providers arrive (cold reload) and consumes the target once.
+  // Skips silently if the conversation's provider no longer exists.
+  useEffect(() => {
+    if (!restoreTarget || providers.length === 0) return
+    const { provider_id, model: storedModel } = restoreTarget
+    setRestoreTarget(null)
+    if (provider_id && providers.some((p) => p.id === provider_id)) {
+      setProviderId(provider_id)
+      if (storedModel) setModel(storedModel)
+    }
+  }, [restoreTarget, providers])
   useEffect(() => {
     localStorage.setItem('syrudas.agentMode', agentMode ? '1' : '0')
   }, [agentMode])
@@ -138,6 +159,7 @@ function App() {
           if (id === activeId) setActiveId(null)
           refreshConversations()
         }}
+        onRenamed={refreshConversations}
         onSettings={() => setView('settings')}
         onArena={() => setView('arena')}
         onEditor={() => setView('editor')}
@@ -216,7 +238,17 @@ function App() {
                 setActiveId(id)
                 refreshConversations()
               }}
-              onConversationLoaded={(conv) => setSystemPrompt(conv.system_prompt ?? '')}
+              onConversationLoaded={(conv, initial) => {
+                setSystemPrompt(conv.system_prompt ?? '')
+                // On a genuine open, queue the conversation's model/provider for
+                // restore so a reply can't silently come from a different model
+                // than the rest of the thread. The reconcile effect applies it
+                // once providers load. Skip on editLast/regenerate resyncs so a
+                // manual model switch before editing isn't reverted.
+                if (initial) {
+                  setRestoreTarget({ provider_id: conv.provider_id, model: conv.model })
+                }
+              }}
               onStreamEnd={refreshConversations}
             />
           </>

@@ -258,12 +258,37 @@ body {
   text-overflow: ellipsis;
 }
 
-.conv-delete {
+.conv-delete,
+.conv-rename {
   visibility: hidden;
+  flex-shrink: 0;
 }
 
-.conv-item:hover .conv-delete {
+.conv-item:hover .conv-delete,
+.conv-item:hover .conv-rename,
+.conv-item:focus-within .conv-delete,
+.conv-item:focus-within .conv-rename {
   visibility: visible;
+}
+
+/* out-specify the later, equal-specificity .icon-btn:hover (which is --danger)
+   so rename reads as a neutral action, not a destructive one like delete */
+.conv-item .conv-rename:hover {
+  color: var(--accent);
+}
+
+.conv-rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  font: inherit;
+  border-radius: 6px;
+}
+
+.conv-search {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 13px;
 }
 
 .conv-empty {
@@ -523,6 +548,16 @@ body {
 
 .msg.assistant:hover .msg-toolbar {
   visibility: visible;
+}
+
+/* token readout stays visible even though the toolbar row hides its actions
+   until hover — child visibility overrides the hidden parent */
+.msg-usage {
+  visibility: visible;
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
 }
 
 .msg.thinking {
@@ -943,6 +978,32 @@ body {
 
 .markdown p {
   margin: 0.4em 0;
+}
+
+.code-block {
+  position: relative;
+}
+
+/* opacity (not visibility) keeps the button focusable and in the tab order, so
+   keyboard users can reach it — the :focus-visible reveal below then applies.
+   pointer-events guards a mouse click on the invisible button. */
+.code-block .code-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+  pointer-events: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  z-index: 1;
+}
+
+.code-block:hover .code-copy,
+.code-block .code-copy:focus-visible,
+.code-block .code-copy.copied {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .markdown pre {
