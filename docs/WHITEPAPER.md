@@ -1,6 +1,6 @@
 # Syrudas AI: A Local-First AI Workspace with Pluggable Model Providers
 
-**Version 0.7.1 · July 2026 · Len · MIT License**
+**Version 0.7.2 · July 2026 · Len · MIT License**
 
 ---
 
@@ -93,6 +93,10 @@ documents, arena results, and settings. One workspace folder holds files the
 agent writes. In the portable build both live directly beside the executable,
 so copying the folder copies the entire installation and deleting it removes
 every trace — no registry keys, no scattered application-data directories.
+Lightweight session state — the open view and conversation, plus the model and
+theme choices — is kept in the frontend's local storage (persisted across
+desktop restarts by the WebView2 storage path), so the app reopens exactly
+where the user left off.
 
 ```
 ┌────────────────────────────── SyrudasAI.exe ─────────────────────────────┐
@@ -513,6 +517,14 @@ palette: status is never conveyed by colour alone — every state also carries a
 icon and a text label — so meaning survives any colour transformation, and the
 palettes are a legibility improvement rather than a load-bearing signal. The
 application also honours the operating system's reduced-motion preference.
+
+Accessibility extends past colour. Every interactive control carries an
+accessible name — icon-only buttons included, each labelled with the action and
+its target (for example, the specific conversation a delete button removes) —
+and the conversation and document lists, which are visually rows, are exposed
+as keyboard-focusable buttons with the active row marked. The workspace is
+therefore navigable and operable with a screen reader and without a mouse, not
+only readable under an adapted palette.
 
 ## 17. Testing and assurance
 

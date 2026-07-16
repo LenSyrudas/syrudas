@@ -38,7 +38,9 @@ built around one idea: **any model backend plugs in through a small provider API
 - **Themes & accessibility** — light / dark / system appearance plus colour-vision modes
   (protanopia, deuteranopia, tritanopia, achromatopsia) under Settings → Appearance, a quick
   theme toggle in the sidebar, and `prefers-reduced-motion` support. Status colours always
-  pair with icons and labels
+  pair with icons and labels; every control has an accessible name and the lists are
+  keyboard-navigable, so it works with a screen reader and without a mouse
+- **Picks up where you left off** — the open view and conversation are restored on relaunch
 - Local-first: FastAPI + React, SQLite, no telemetry, keys never leave your machine
 
 **Docs:** [Setup guide](docs/SETUP.md) · [Whitepaper](docs/WHITEPAPER.md)
