@@ -302,8 +302,19 @@ Alternatives:
 cd web; npm run dev                                 # frontend HMR (proxies /api to :8040)
 ```
 
-Offline test suites (no network, no model, no GPU needed — they drive the
-real code against fakes):
+Run everything with one command — the offline Python suites plus the frontend
+lint and typecheck. This is exactly what CI runs on every push and pull request
+(see [.github/workflows/ci.yml](../.github/workflows/ci.yml)); it exits non-zero
+if anything fails:
+
+```powershell
+.\run_tests.ps1              # offline suites + frontend lint/build
+.\run_tests.ps1 -SkipWeb     # Python only (no Node needed)
+.\run_tests.ps1 -Smoke       # also run the live smoke tests (needs a model)
+```
+
+The individual offline suites (no network, no model, no GPU needed — they drive
+the real code against fakes):
 
 ```powershell
 .venv\Scripts\python.exe scripts\test_agent_safety.py   # tool gating + sandbox

@@ -556,6 +556,15 @@ sit only at the true boundaries — the network, the model — the suites verify
 the system's own behavior, and they need no network, no GPU, and no running
 model, so they run anywhere in seconds.
 
+That property is what makes the suites enforceable rather than merely
+available. A single entry point runs every offline suite alongside the
+frontend's lint and typecheck, and continuous integration invokes that same
+entry point on every push and pull request, on Windows because that is the
+platform the application targets. The value is less in the automation than in
+the guarantee it removes from human memory: a regression in any subsystem fails
+the branch that introduced it, rather than waiting for whoever next thinks to
+run the suite by hand.
+
 Beyond the suites, substantial features were put through an adversarial review
 before shipping: independent passes over the diff for correctness, security,
 frontend contract, and test coverage, with each finding challenged by
