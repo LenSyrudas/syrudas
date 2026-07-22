@@ -71,6 +71,20 @@ if (-not $SkipWeb) {
             $out | ForEach-Object { Write-Host "      $_" }
         }
 
+        Write-Host ("  {0,-26} " -f "unit (vitest)") -NoNewline
+        $out = & npm run --silent test 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            # surface the count so a suite silently collecting nothing is visible
+            $summary = ($out | Select-String -Pattern "Tests\s+\d+ passed" | Select-Object -Last 1)
+            Write-Host "PASS" -ForegroundColor Green -NoNewline
+            if ($summary) { Write-Host ("  ({0})" -f ($summary -replace '.*Tests\s+', '' -replace '\s+$', '')) }
+            else { Write-Host "" }
+            $passed++
+        } else {
+            Write-Host "FAIL" -ForegroundColor Red; $failed += "unit"
+            $out | ForEach-Object { Write-Host "      $_" }
+        }
+
         # `npm run build` runs tsc -b first, so this covers the typecheck
         Write-Host ("  {0,-26} " -f "build (tsc + vite)") -NoNewline
         $out = & npm run --silent build 2>&1
