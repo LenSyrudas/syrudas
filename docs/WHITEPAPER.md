@@ -558,12 +558,26 @@ model, so they run anywhere in seconds.
 
 That property is what makes the suites enforceable rather than merely
 available. A single entry point runs every offline suite alongside the
-frontend's lint and typecheck, and continuous integration invokes that same
-entry point on every push and pull request, on Windows because that is the
-platform the application targets. The value is less in the automation than in
-the guarantee it removes from human memory: a regression in any subsystem fails
-the branch that introduced it, rather than waiting for whoever next thinks to
-run the suite by hand.
+frontend's unit tests, lint and typecheck, and continuous integration invokes
+that same entry point on every push and pull request, on Windows because that is
+the platform the application targets. The value is less in the automation than
+in the guarantee it removes from human memory: a regression in any subsystem
+fails the branch that introduced it, rather than waiting for whoever next thinks
+to run the suite by hand.
+
+The client is covered on the same principle. Adversarial review kept finding its
+defects in one place — the logic that folds a stream of events into a thread and
+rebuilds that thread from storage — because those are stateful transforms whose
+mistakes are invisible until a specific sequence occurs. That logic is therefore
+kept as pure functions outside the component: a reducer that folds one event
+into the item list, and a rebuild that turns saved messages back into it. Both
+are exercised directly, with event scripts standing in for a model, including
+the sequences that previously produced wrong output — an agent step that calls a
+tool without speaking, where the turn's token counts belong to no visible
+message and must be discarded rather than written onto the previous answer.
+Interaction that genuinely depends on the DOM, such as the sidebar's rename
+committing on Enter and blur but discarding on Escape, is driven through the
+rendered component instead.
 
 Beyond the suites, substantial features were put through an adversarial review
 before shipping: independent passes over the diff for correctness, security,

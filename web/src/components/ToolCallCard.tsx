@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { resolveApproval } from '../api'
-import type { ToolItem } from './ChatView'
+import type { ToolItem } from '../chatItems'
 
 export default function ToolCallCard({
   item,

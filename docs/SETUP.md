@@ -303,14 +303,24 @@ cd web; npm run dev                                 # frontend HMR (proxies /api
 ```
 
 Run everything with one command — the offline Python suites plus the frontend
-lint and typecheck. This is exactly what CI runs on every push and pull request
-(see [.github/workflows/ci.yml](../.github/workflows/ci.yml)); it exits non-zero
-if anything fails:
+unit tests, lint and typecheck. This is exactly what CI runs on every push and
+pull request (see [.github/workflows/ci.yml](../.github/workflows/ci.yml)); it
+exits non-zero if anything fails:
 
 ```powershell
-.\run_tests.ps1              # offline suites + frontend lint/build
+.\run_tests.ps1              # offline suites + frontend unit/lint/build
 .\run_tests.ps1 -SkipWeb     # Python only (no Node needed)
 .\run_tests.ps1 -Smoke       # also run the live smoke tests (needs a model)
+```
+
+Frontend unit tests (Vitest + Testing Library, jsdom — no browser needed) cover
+the thread reducer, the saved-conversation rebuild, the clipboard helper and the
+sidebar's search/rename behaviour:
+
+```powershell
+cd web
+npm test          # once
+npm run test:watch  # re-run on change
 ```
 
 The individual offline suites (no network, no model, no GPU needed — they drive

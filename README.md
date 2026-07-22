@@ -61,7 +61,7 @@ Requirements: Windows, Python 3.13 (`py` launcher), Node.js 20+, and a model bac
 ```powershell
 .\setup.ps1     # venv + pip + npm install + frontend build
 .\run.ps1       # server only, use in a browser at http://127.0.0.1:8040
-.\run_tests.ps1 # offline test suites + frontend lint/typecheck (what CI runs)
+.\run_tests.ps1 # backend suites + frontend unit tests/lint/typecheck (what CI runs)
 ```
 
 ### Desktop app (one-click exe)
