@@ -1,5 +1,7 @@
 # Syrudas AI
 
+[![CI](https://github.com/LenSyrudas/syrudas/actions/workflows/ci.yml/badge.svg)](https://github.com/LenSyrudas/syrudas/actions/workflows/ci.yml)
+
 A self-hosted AI workspace in the spirit of [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus),
 built around one idea: **any model backend plugs in through a small provider API**.
 
@@ -59,6 +61,7 @@ Requirements: Windows, Python 3.13 (`py` launcher), Node.js 20+, and a model bac
 ```powershell
 .\setup.ps1     # venv + pip + npm install + frontend build
 .\run.ps1       # server only, use in a browser at http://127.0.0.1:8040
+.\run_tests.ps1 # offline test suites + frontend lint/typecheck (what CI runs)
 ```
 
 ### Desktop app (one-click exe)
