@@ -85,9 +85,13 @@ Pick a model in the top bar and chat. Toggle **Agent mode** to let the model use
 
 `.\build_release.ps1` builds the exe (with version metadata from `APP_VERSION` in
 [server/config.py](server/config.py)) and packages `release\SyrudasAI-vX.Y.Z-win64.zip`
-containing the exe, an end-user `README.txt`, and the MIT `LICENSE.txt`. To cut a new
-version: bump `APP_VERSION` and the numbers in `version_info.txt`, then rerun the script.
+containing the exe, an end-user `README.txt`, and the MIT `LICENSE.txt`. It then runs
+`.\verify_release.ps1`, which unzips the finished archive somewhere clean and actually
+launches it — a build that doesn't start won't pass. To cut a new version: bump
+`APP_VERSION` and the numbers in `version_info.txt`, then rerun the script.
 The exe is unsigned, so recipients may need to click through SmartScreen once.
+
+Full checklist: [docs/RELEASING.md](docs/RELEASING.md).
 
 ## VS Code integration
 

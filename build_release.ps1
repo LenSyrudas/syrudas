@@ -1,6 +1,15 @@
 # Package a shippable portable release: release\SyrudasAI-vX.Y.Z-win64.zip
 # Reads the version from server\config.py, builds the exe, and zips it with
 # the end-user README and LICENSE.
+#
+# The finished archive is then smoke-tested by verify_release.ps1: unzipped
+# clean and actually launched. Pass -SkipVerify to skip that (for example when
+# an instance is already using port 8040), but do not ship an unverified build -
+# v0.7.3 went out broken precisely because the packaged exe was never run.
+param(
+    [switch]$SkipVerify
+)
+
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
@@ -45,3 +54,11 @@ Remove-Item $stage -Recurse -Force
 
 Write-Host ""
 Write-Host "Release ready: $root\$zip"
+
+if ($SkipVerify) {
+    Write-Host ""
+    Write-Host "Skipped artifact verification (-SkipVerify). Run .\verify_release.ps1 before shipping." -ForegroundColor Yellow
+} else {
+    & .\verify_release.ps1 -Zip $zip
+    if ($LASTEXITCODE -ne 0) { throw "release verification failed - do not ship this build" }
+}
