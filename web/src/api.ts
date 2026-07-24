@@ -198,6 +198,12 @@ export const listProviderTypes = () =>
 export const listProviders = () =>
   fetch('/api/providers').then((r) => json<ProviderInstance[]>(r))
 
+/** Re-run local backend detection (Ollama / LM Studio) and return the result. */
+export const detectProviders = () =>
+  fetch('/api/providers/detect', { method: 'POST' }).then((r) =>
+    json<{ added: ProviderInstance[]; providers: ProviderInstance[] }>(r),
+  )
+
 export const createProvider = (typeId: string, name: string, config: Record<string, string>) =>
   fetch('/api/providers', {
     method: 'POST',

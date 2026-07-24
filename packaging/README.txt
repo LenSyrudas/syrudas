@@ -18,6 +18,11 @@ Quick start
    is running, Syrudas finds it automatically and you can start
    chatting right away.
 
+If you open Syrudas before installing a model backend, it will say so
+and the message box stays disabled - that is expected, it has nothing
+to talk to yet. Install Ollama, then either restart Syrudas or click
+"Look for local backends" on the welcome screen and it will pick it up.
+
 Notes
 -----
 - Windows says "Windows protected your PC"? That is SmartScreen being

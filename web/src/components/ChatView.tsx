@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  detectProviders,
   getConversation,
   rewindConversation,
   streamChat,
@@ -56,6 +57,9 @@ interface Props {
   // editLast/regenerate resyncs — lets the parent restore the model just once.
   onConversationLoaded: (conv: Conversation, initial: boolean) => void
   onStreamEnd: () => void
+  /** a backend was just detected — reload the provider list */
+  onProvidersChanged: () => void
+  onOpenSettings: () => void
 }
 
 export default function ChatView({
@@ -68,6 +72,8 @@ export default function ChatView({
   onConversationCreated,
   onConversationLoaded,
   onStreamEnd,
+  onProvidersChanged,
+  onOpenSettings,
 }: Props) {
   const [items, setItems] = useState<ChatItem[]>([])
   // External launchers (e.g. the VS Code extension) prefill the composer via
@@ -86,6 +92,8 @@ export default function ChatView({
   const [pending, setPending] = useState<Attachment[]>([])
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [detecting, setDetecting] = useState(false)
+  const [detectMsg, setDetectMsg] = useState('')
   // a research run's report has no rewind story (regenerate would delete it and
   // reply with a plain, un-cited answer) - suppress edit/regenerate for it
   const [isResearch, setIsResearch] = useState(false)
@@ -274,6 +282,26 @@ export default function ChatView({
     }
   }
 
+  async function detectBackends() {
+    setDetecting(true)
+    setDetectMsg('')
+    try {
+      const res = await detectProviders()
+      if (res.added.length) {
+        setDetectMsg(`Found ${res.added.map((p) => p.name).join(' and ')}.`)
+        onProvidersChanged()
+      } else {
+        setDetectMsg(
+          'Nothing answered on the usual ports. Start Ollama (or LM Studio) and try again.',
+        )
+      }
+    } catch (e) {
+      setDetectMsg(String(e))
+    } finally {
+      setDetecting(false)
+    }
+  }
+
   function markToolResolved(approvalId: string, approved: boolean) {
     setItems((prev) =>
       prev.map((it) =>
@@ -302,8 +330,19 @@ export default function ChatView({
                 ? agentMode
                   ? 'Agent mode: the model can plan and use tools. Shell commands, web fetches and writes outside the workspace wait for your approval.'
                   : 'Ask anything. Swap models any time from the picker above.'
-                : 'Add a model provider in Settings to get started.'}
+                : 'No model backend yet. Start Ollama or LM Studio, then look again — or add a provider by hand in Settings.'}
             </p>
+            {!canSend && (
+              <div className="setup-actions">
+                <button className="btn btn-primary" disabled={detecting} onClick={detectBackends}>
+                  {detecting ? 'Looking…' : 'Look for local backends'}
+                </button>
+                <button className="btn" onClick={onOpenSettings}>
+                  Open Settings
+                </button>
+                {detectMsg && <p className="setup-msg">{detectMsg}</p>}
+              </div>
+            )}
           </div>
         )}
         {items.map((item, i) => {
