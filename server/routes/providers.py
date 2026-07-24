@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import db
+from ..onboarding import detect_local_providers
 from ..providers.registry import create_provider, provider_types
 
 router = APIRouter(tags=["providers"])
@@ -54,6 +55,21 @@ async def get_provider_types():
 @router.get("/providers")
 async def list_providers():
     return [_mask(i) for i in await db.list_provider_instances()]
+
+
+@router.post("/providers/detect")
+async def detect_providers():
+    """Look for local backends again.
+
+    The recovery path for the common first run: the app is opened before Ollama
+    or LM Studio is installed, so startup detection finds nothing. This lets the
+    user fix that from the UI instead of typing a base URL by hand.
+    """
+    added = await detect_local_providers()
+    return {
+        "added": [_mask(i) for i in added],
+        "providers": [_mask(i) for i in await db.list_provider_instances()],
+    }
 
 
 @router.post("/providers")

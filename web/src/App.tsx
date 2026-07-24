@@ -250,6 +250,8 @@ function App() {
                 }
               }}
               onStreamEnd={refreshConversations}
+              onProvidersChanged={refreshProviders}
+              onOpenSettings={() => setView('settings')}
             />
           </>
         )}

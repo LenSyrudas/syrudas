@@ -526,6 +526,22 @@ body {
   color: var(--text);
 }
 
+/* first-run recovery: no backend was found at startup */
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.setup-msg {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
 .msg.user {
   display: flex;
   justify-content: flex-end;
