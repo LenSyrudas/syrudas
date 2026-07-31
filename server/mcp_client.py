@@ -117,7 +117,12 @@ def _sanitize(name: str) -> str:
 
 
 class McpTool(Tool):
-    requires_approval = False
+    # Gated by default. An MCP server runs with the user's privileges and can
+    # expose anything - a filesystem server's write, a shell wrapper, an API
+    # client - and the app cannot tell which from the tool schema alone.
+    # Registering a server should not silently widen what the model may do
+    # without asking, which is the promise every other risky tool here keeps.
+    requires_approval = True
 
     def __init__(self, conn: _Conn, remote_name: str, description: str, parameters: dict):
         self._conn = conn

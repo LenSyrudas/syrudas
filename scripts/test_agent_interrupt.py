@@ -365,7 +365,10 @@ async def test_build_history_repairs_old_damage():
     history = await build_history(conv)
     assert wire_is_valid(history), "build_history left a pre-existing orphan unanswered"
     repaired = [m for m in history if m.role == "tool" and m.tool_call_id == "legacy_1"]
-    assert len(repaired) == 1 and repaired[0].content == INTERRUPTED_TOOL_RESULT
+    # `in`, not `==`: every tool message is fenced as untrusted data on its way
+    # to the model, synthesized ones included - one rule with no exception an
+    # attacker could aim for
+    assert len(repaired) == 1 and INTERRUPTED_TOOL_RESULT in repaired[0].content
     # position matters: the Anthropic adapter only merges results into the
     # tool_use block immediately before them
     idx = history.index(repaired[0])

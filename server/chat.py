@@ -26,6 +26,41 @@ log = logging.getLogger(__name__)
 # has an answer to point at
 INTERRUPTED_TOOL_RESULT = "[interrupted: no result was recorded for this tool call]"
 
+# Tool output is data the model asked for, never instructions addressed to it.
+# A fetched page, an indexed document or a file on disk can all contain text
+# written to look like a command, and the agent holds shell and file-write, so
+# the boundary has to be explicit. Deep research has fenced its sources since it
+# shipped; this is the same technique applied to the loop that can actually act.
+TOOL_FENCE_BEGIN = "<<<TOOL_OUTPUT {} BEGIN>>>"
+TOOL_FENCE_END = "<<<TOOL_OUTPUT END>>>"
+_TOOL_FENCE_RE = re.compile(r"<<<\s*TOOL_OUTPUT\b[^>]*>>>", re.IGNORECASE)
+
+
+def fence_tool_output(name: str, content: str) -> str:
+    """Wrap a tool result so the model can tell it apart from its instructions.
+
+    Counterfeit markers in the content are stripped first: without that, a page
+    can close the fence early and have everything after it read as trusted.
+    """
+    body = _TOOL_FENCE_RE.sub("", content or "")
+    return f"{TOOL_FENCE_BEGIN.format(name)}\n{body}\n{TOOL_FENCE_END}"
+
+
+def fence_tool_messages(messages: list[Message]) -> list[Message]:
+    """Apply the fence to every tool message, naming the tool that produced it.
+
+    Done here rather than at write time so the database keeps the raw result -
+    the transcript, export and tool cards stay readable - while every request
+    sent to a model, live or replayed, carries the boundary.
+    """
+    names = {tc.id: tc.name for m in messages for tc in (m.tool_calls or [])}
+    return [
+        m.model_copy(update={
+            "content": fence_tool_output(names.get(m.tool_call_id or "", "tool"), m.content)
+        }) if m.role == "tool" else m
+        for m in messages
+    ]
+
 
 async def persist_if_current(conv_id: str, gen: int, role: str, content: str = "",
                              **kw) -> None:
@@ -73,7 +108,8 @@ async def build_history(conv: dict, budget: int = MAX_HISTORY_CHARS) -> list[Mes
             role=m["role"], content=m["content"] or "",
             tool_calls=tool_calls, tool_call_id=m["tool_call_id"],
         ))
-    return trim_history(repair_tool_calls(messages), budget)
+    # fence before trimming so the budget accounts for the markers it adds
+    return trim_history(fence_tool_messages(repair_tool_calls(messages)), budget)
 
 
 def repair_tool_calls(messages: list[Message]) -> list[Message]:
