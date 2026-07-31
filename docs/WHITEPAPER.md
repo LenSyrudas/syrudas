@@ -600,12 +600,16 @@ promise, and the posture is layered.
   not yet do this — tool output, including fetched pages and retrieved passages,
   is appended to the conversation unmarked. Giving the agent loop the same
   fencing is tracked work, not a design position.
-- **Static file serving.** The single-page-application fallback route resolves
-  request paths against the bundled web assets. Constraining that resolution so
-  no request path can escape the asset directory is an outstanding fix; until it
-  lands, the local HTTP surface should be assumed capable of reading files the
-  user can read, and anything with access to the port should be treated
-  accordingly. It is the first item on the current work list.
+- **Static file serving.** The route that serves the single-page application
+  resolves each request path against the bundled web assets and refuses anything
+  that resolves outside them, falling back to the application shell. Resolution
+  also collapses symlinks, so a link placed inside the bundle cannot point out of
+  it. Containment matters more here than for an ordinary static-file route,
+  because these assets are served from the application's own origin: a local file
+  served through this path would not merely be readable, it would execute — any
+  HTML on disk would gain same-origin access to `/api` and `/v1`. That
+  containment check was added after version 0.7.4; earlier builds resolved the
+  path without it, and anyone still running one should update.
 - **Data at rest.** Conversations, settings, memories, indexed chunks,
   documents, and provider API keys live in one local SQLite file. Keys are
   stored in plaintext — an OS-keychain integration is future work — but are
@@ -684,6 +688,17 @@ placeholder, and a history that still assembles into a valid provider request.
 Fakes make those assertions cheap and deterministic; because a scripted provider
 cannot reproduce the fragmented, interleaved tool calls a real backend streams,
 the same properties were also confirmed against a live local model.
+
+Choosing where to put the boundary is itself load-bearing, and the path
+containment of Section 15 is the clearest case. Its suite starts a real server
+on a loopback port rather than using an in-process test client, because such a
+client normalizes the request URL before the request is constructed — which
+silently repairs a percent-encoded traversal, the one form that survives the
+server's own normalization and reaches the handler intact. Tested through the
+convenient boundary, the suite would have passed over a live hole. Its
+assertions were then checked by removing the containment and confirming the
+suite fails, on the principle that a security test that cannot fail is worse
+than no test at all, because it is mistaken for coverage.
 
 That property is what makes the suites enforceable rather than merely
 available. A single entry point runs every offline suite alongside the
