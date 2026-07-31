@@ -161,11 +161,18 @@ def test_routes():
 
 
 async def main():
-    await test_crud()
-    await db.close_db()
-    test_routes()
-    print("\nALL DOCUMENT TESTS PASSED")
+    try:
+        await test_crud()
+        await db.close_db()
+        test_routes()
+        print("\nALL DOCUMENT TESTS PASSED")
 
+    finally:
+        # aiosqlite's connection thread is not a daemon, so a failing
+        # assertion that skipped the close left the interpreter hanging at
+        # exit: the suite never reported its failure, it just stopped, and
+        # in CI that is a job running to the time limit instead of a red X.
+        await db.close_db()
 
 if __name__ == "__main__":
     import asyncio

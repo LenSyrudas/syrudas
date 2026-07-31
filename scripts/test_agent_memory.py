@@ -273,17 +273,24 @@ def test_routes():
 
 
 async def main():
-    await test_tools_roundtrip()
-    await test_caps()
-    await test_agent_prompt_injection()
-    await test_memory_save_through_agent_loop()
-    await test_plain_chat_never_sees_memories()
-    await test_prompt_budget()
-    # TestClient drives the app in its own event loop - hand the connection over
-    await db.close_db()
-    test_routes()
-    print("\nALL AGENT MEMORY TESTS PASSED")
+    try:
+        await test_tools_roundtrip()
+        await test_caps()
+        await test_agent_prompt_injection()
+        await test_memory_save_through_agent_loop()
+        await test_plain_chat_never_sees_memories()
+        await test_prompt_budget()
+        # TestClient drives the app in its own event loop - hand the connection over
+        await db.close_db()
+        test_routes()
+        print("\nALL AGENT MEMORY TESTS PASSED")
 
+    finally:
+        # aiosqlite's connection thread is not a daemon, so a failing
+        # assertion that skipped the close left the interpreter hanging at
+        # exit: the suite never reported its failure, it just stopped, and
+        # in CI that is a job running to the time limit instead of a red X.
+        await db.close_db()
 
 if __name__ == "__main__":
     asyncio.run(main())

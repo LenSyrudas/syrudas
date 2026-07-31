@@ -295,19 +295,26 @@ def test_route():
 
 
 async def main():
-    test_ddg_unwrap()
-    test_parse_queries()
-    test_source_sanitization()
-    await test_pipeline_happy_path()
-    await test_dedup_and_cap()
-    await test_fetch_failures_skipped()
-    await test_synthesis_error_persists_honest_note()
-    await test_stale_generation_not_persisted()
-    await test_no_sources_graceful()
-    await db.close_db()
-    test_route()
-    print("\nALL RESEARCH TESTS PASSED")
+    try:
+        test_ddg_unwrap()
+        test_parse_queries()
+        test_source_sanitization()
+        await test_pipeline_happy_path()
+        await test_dedup_and_cap()
+        await test_fetch_failures_skipped()
+        await test_synthesis_error_persists_honest_note()
+        await test_stale_generation_not_persisted()
+        await test_no_sources_graceful()
+        await db.close_db()
+        test_route()
+        print("\nALL RESEARCH TESTS PASSED")
 
+    finally:
+        # aiosqlite's connection thread is not a daemon, so a failing
+        # assertion that skipped the close left the interpreter hanging at
+        # exit: the suite never reported its failure, it just stopped, and
+        # in CI that is a job running to the time limit instead of a red X.
+        await db.close_db()
 
 if __name__ == "__main__":
     asyncio.run(main())

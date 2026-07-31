@@ -239,16 +239,23 @@ async def test_no_ollama_paths():
 
 
 async def main():
-    test_catalog_integrity()
-    test_fit_ratings()
-    await test_ollama_client()
-    await test_resolve_prefers_configured_provider()
-    await test_no_ollama_paths()
-    await db.close_db()
-    test_routes()
-    test_route_error_paths()
-    print("\nALL COOKBOOK TESTS PASSED")
+    try:
+        test_catalog_integrity()
+        test_fit_ratings()
+        await test_ollama_client()
+        await test_resolve_prefers_configured_provider()
+        await test_no_ollama_paths()
+        await db.close_db()
+        test_routes()
+        test_route_error_paths()
+        print("\nALL COOKBOOK TESTS PASSED")
 
+    finally:
+        # aiosqlite's connection thread is not a daemon, so a failing
+        # assertion that skipped the close left the interpreter hanging at
+        # exit: the suite never reported its failure, it just stopped, and
+        # in CI that is a job running to the time limit instead of a red X.
+        await db.close_db()
 
 if __name__ == "__main__":
     import asyncio
