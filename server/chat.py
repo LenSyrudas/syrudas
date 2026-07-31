@@ -13,7 +13,10 @@ from typing import AsyncIterator, Optional
 import logging
 
 from . import db, runs
-from .config import MAX_HISTORY_CHARS
+from .config import (
+    CHARS_PER_TOKEN, MAX_HISTORY_CHARS, RESPONSE_RESERVE_TOKENS,
+    TOOL_SCHEMA_RESERVE_TOKENS,
+)
 from .providers.base import ModelProvider
 from .schemas import GenParams, Message, StreamEvent, ToolCall
 
@@ -35,7 +38,30 @@ async def persist_if_current(conv_id: str, gen: int, role: str, content: str = "
     await db.add_message(conv_id, role, content, **kw)
 
 
-async def build_history(conv: dict) -> list[Message]:
+async def history_budget(provider, model: str, agent_mode: bool = False) -> int:
+    """Characters of history to send, sized from the model's own context window.
+
+    A fixed budget is wrong in both directions at once: it wastes most of a
+    32k-token window, and it can still overrun a small one. The window is asked
+    for per model and cached; when a backend will not say, the fixed fallback
+    applies rather than a guess.
+    """
+    try:
+        context = await provider.context_tokens(model)
+    except Exception:  # a probe must never be able to fail a turn
+        log.debug("Context probe failed for %s; using the fixed budget", model, exc_info=True)
+        context = None
+    if not context:
+        return MAX_HISTORY_CHARS
+
+    reserve = RESPONSE_RESERVE_TOKENS + (TOOL_SCHEMA_RESERVE_TOKENS if agent_mode else 0)
+    usable = max(context - reserve, 0)
+    # never fall below the fixed budget just because a window is tiny - the
+    # newest message is kept whole regardless, and the backend still truncates
+    return max(int(usable * CHARS_PER_TOKEN), MAX_HISTORY_CHARS)
+
+
+async def build_history(conv: dict, budget: int = MAX_HISTORY_CHARS) -> list[Message]:
     messages: list[Message] = []
     if conv.get("system_prompt"):
         messages.append(Message(role="system", content=conv["system_prompt"]))
@@ -47,7 +73,7 @@ async def build_history(conv: dict) -> list[Message]:
             role=m["role"], content=m["content"] or "",
             tool_calls=tool_calls, tool_call_id=m["tool_call_id"],
         ))
-    return trim_history(repair_tool_calls(messages))
+    return trim_history(repair_tool_calls(messages), budget)
 
 
 def repair_tool_calls(messages: list[Message]) -> list[Message]:
@@ -139,7 +165,7 @@ async def stream_plain_chat(
     """Single completion, no tools. Persists the assistant reply when done."""
     if gen is None:
         gen = runs.generation(conv["id"])
-    history = await build_history(conv)
+    history = await build_history(conv, await history_budget(provider, conv["model"]))
     text_parts: list[str] = []
     usage: Optional[StreamEvent] = None
     async for ev in provider.chat(conv["model"], history, params=params):
