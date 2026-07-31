@@ -25,10 +25,17 @@ class Tool(ABC):
         """Execute and return a text result for the model."""
 
 
+# Every truncated tool result carries this marker. It is a shared constant
+# rather than an inline string because file_write checks for it: content that
+# still contains it is provably something the model only partially saw, and
+# writing it back would destroy the part it never read.
+TRUNCATION_MARK = "... [truncated,"
+
+
 def truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
-    return text[:limit] + f"\n... [truncated, {len(text) - limit} more chars]"
+    return text[:limit] + f"\n{TRUNCATION_MARK} {len(text) - limit} more chars]"
 
 
 def builtin_tools() -> list[Tool]:

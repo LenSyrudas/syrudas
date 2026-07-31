@@ -9,9 +9,29 @@ from pathlib import Path
 from typing import Any
 
 from ..config import DEFAULT_WORKSPACE
-from . import Tool, truncate
+from . import Tool, TRUNCATION_MARK, truncate
 
 READ_LIMIT = 12000
+
+# Files handed to the model in truncated form, and how large they really were.
+# file_write consults this: writing back content the model only partially saw
+# silently destroys the remainder, which is the worst thing these tools can do.
+# Module state is enough here - the app is a single process serving one user,
+# and a stale entry only ever causes a refusal the model can recover from.
+_truncated_reads: dict[Path, int] = {}
+
+
+def _describe_change(target: Path, existed: bool, before: str, after: str) -> str:
+    """Say what an overwrite actually did, in the terms a reviewer would check."""
+    if not existed:
+        return f"Created {target} ({len(after)} chars, {after.count(chr(10)) + 1} lines)"
+    before_lines, after_lines = before.count("\n") + 1, after.count("\n") + 1
+    note = (f"Wrote {len(after)} chars to {target} "
+            f"(lines: {before_lines} -> {after_lines}, "
+            f"bytes: {len(before)} -> {len(after)})")
+    if len(after) < len(before) * 0.5:
+        note += f"\nNote: this replaced more than half the file's previous content."
+    return note
 
 
 async def allowed_roots() -> list[Path]:
@@ -63,7 +83,16 @@ class FileReadTool(Tool):
             target = _resolve(str(args.get("path", "")), await allowed_roots())
             if not target.is_file():
                 return f"Error: not a file: {args.get('path')}"
-            return truncate(target.read_text("utf-8", errors="replace"), READ_LIMIT)
+            text = target.read_text("utf-8", errors="replace")
+            if len(text) > READ_LIMIT:
+                # remember, so a later write-back of this partial view is refused
+                _truncated_reads[target] = len(text)
+                return (truncate(text, READ_LIMIT) +
+                        "\n[You have seen the first "
+                        f"{READ_LIMIT} of {len(text)} characters. Do NOT write this "
+                        "back as the whole file - the rest would be lost.]")
+            _truncated_reads.pop(target, None)  # a full read supersedes any partial one
+            return text
         except (OSError, ValueError) as exc:
             return f"Error: {exc}"
 
@@ -96,10 +125,37 @@ class FileWriteTool(Tool):
     async def run(self, args: dict[str, Any]) -> str:
         try:
             target = _resolve(str(args.get("path", "")), await allowed_roots())
+
+            # A missing key is a malformed call, not a request to empty the file.
+            # This used to coerce to "" and silently truncate to zero bytes.
+            if "content" not in args or args["content"] is None:
+                return ("Error: no 'content' given. Pass the full text to write; "
+                        "pass an empty string only if you really mean to empty the file.")
+            content = str(args["content"])
+
+            existed = target.is_file()
+            before = target.read_text("utf-8", errors="replace") if existed else ""
+
+            if TRUNCATION_MARK in content:
+                return ("Error: refusing to write - this content still contains a "
+                        "truncation marker, so it is a partial view of a larger "
+                        "result. Writing it back would discard everything after "
+                        "the cut. Write only the part you intend to change, to a "
+                        "new file, or ask for the region you need.")
+
+            full_size = _truncated_reads.get(target)
+            if existed and full_size and len(content) < full_size:
+                return (f"Error: refusing to write - {target.name} was read in "
+                        f"truncated form ({READ_LIMIT} of {full_size} chars shown) "
+                        f"and this content is shorter ({len(content)} chars), so "
+                        f"{full_size - len(content)} characters you never saw would "
+                        "be lost. Re-read the file in full first, or write to a "
+                        "different path.")
+
             target.parent.mkdir(parents=True, exist_ok=True)
-            content = str(args.get("content", ""))
             target.write_text(content, "utf-8")
-            return f"Wrote {len(content)} chars to {target}"
+            _truncated_reads.pop(target, None)  # the file on disk is now what was written
+            return _describe_change(target, existed, before, content)
         except (OSError, ValueError) as exc:
             return f"Error: {exc}"
 

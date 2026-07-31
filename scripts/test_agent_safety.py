@@ -205,14 +205,18 @@ async def test_file_sandbox():
     assert r.startswith("Error:") and "not in an allowed folder" in r, r
 
     r = await write.run({"path": "notes.txt", "content": "workspace file"})
-    assert r.startswith("Wrote"), r
+    # the point here is that the sandbox permitted it; file_write reports
+    # "Created" for a new path and "Wrote" for an overwrite
+    assert not r.startswith("Error:"), r
     r = await read.run({"path": "notes.txt"})
     assert r == "workspace file", r
 
     # granting a folder in settings opens it up for absolute paths
     await db.set_setting("agent_folders", json.dumps([str(GRANTED)]))
     r = await write.run({"path": str(GRANTED / "ok.txt"), "content": "granted"})
-    assert r.startswith("Wrote"), r
+    # the point here is that the sandbox permitted it; file_write reports
+    # "Created" for a new path and "Wrote" for an overwrite
+    assert not r.startswith("Error:"), r
     await db.set_setting("agent_folders", "[]")
     r = await read.run({"path": str(GRANTED / "ok.txt")})
     assert r.startswith("Error:"), "revoking the grant must close access again"
