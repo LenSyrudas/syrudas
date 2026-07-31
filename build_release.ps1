@@ -32,12 +32,27 @@ New-Item -ItemType Directory $appdir | Out-Null
 
 Copy-Item "SyrudasAI.exe" $appdir
 Copy-Item "LICENSE" (Join-Path $appdir "LICENSE.txt")
-Copy-Item "packaging\README.txt" $appdir
-if (Test-Path "docs\Syrudas-AI-Whitepaper.pdf") {
-    Copy-Item "docs\Syrudas-AI-Whitepaper.pdf" $appdir
-}
-if (Test-Path "docs\SETUP.md") {
-    Copy-Item "docs\SETUP.md" (Join-Path $appdir "SETUP.txt")
+
+# stamp the version into the end-user readme rather than hand-maintaining it:
+# a zip on someone's disk should say what it is without being launched.
+# WriteAllText with an explicit no-BOM encoding, because Set-Content -Encoding
+# utf8 on PowerShell 5.1 emits a BOM, which some editors render as "i>>?" on
+# the very first line the user reads.
+$readme = (Get-Content "packaging\README.txt" -Raw).Replace("{{VERSION}}", "v$version")
+[System.IO.File]::WriteAllText(
+    (Join-Path $appdir "README.txt"), $readme,
+    (New-Object System.Text.UTF8Encoding $false))
+
+# these were conditional, which meant a release could quietly ship without its
+# documentation; a missing doc is a broken build, not an optional extra
+foreach ($doc in @(
+    @{ Src = "docs\Syrudas-AI-Whitepaper.pdf"; Dest = "Syrudas-AI-Whitepaper.pdf" },
+    @{ Src = "docs\SETUP.md";                  Dest = "SETUP.txt" }
+)) {
+    if (-not (Test-Path $doc.Src)) {
+        throw "$($doc.Src) is missing; release would ship without it. Regenerate it and retry."
+    }
+    Copy-Item $doc.Src (Join-Path $appdir $doc.Dest)
 }
 # optional provider connectors (Anthropic, Gemini, ...) ship as drop-in
 # plugins next to the exe - configure with an API key in Settings to activate.
