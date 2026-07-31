@@ -21,8 +21,11 @@ async def lifespan(app: FastAPI):
     await db.get_db()
     await auto_detect_providers()
     yield
+    from .agent import drain_detached_writes
     from .mcp_client import close_all
     await close_all()
+    # a run cancelled on the way down still owes its tool_calls an answer
+    await drain_detached_writes()
     await db.close_db()
 
 

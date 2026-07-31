@@ -19,6 +19,10 @@ from .schemas import GenParams, Message, StreamEvent, ToolCall
 
 log = logging.getLogger(__name__)
 
+# stands in for a tool result that was never recorded, so a tool_call always
+# has an answer to point at
+INTERRUPTED_TOOL_RESULT = "[interrupted: no result was recorded for this tool call]"
+
 
 async def persist_if_current(conv_id: str, gen: int, role: str, content: str = "",
                              **kw) -> None:
@@ -43,7 +47,45 @@ async def build_history(conv: dict) -> list[Message]:
             role=m["role"], content=m["content"] or "",
             tool_calls=tool_calls, tool_call_id=m["tool_call_id"],
         ))
-    return trim_history(messages)
+    return trim_history(repair_tool_calls(messages))
+
+
+def repair_tool_calls(messages: list[Message]) -> list[Message]:
+    """Give every assistant tool_call an answering tool message.
+
+    A run that died between persisting the assistant turn and persisting its
+    tool results (a crash, or a Stop while a tool was still running) leaves
+    tool_calls with nothing answering them. Both OpenAI and Anthropic reject
+    that shape outright, so replaying it would 400 the conversation on every
+    later turn - permanently, since the rows are already on disk. The agent
+    loop closes the gap as it exits; this is the backstop for the rows it
+    couldn't reach and for conversations damaged before it learned to.
+    """
+    out: list[Message] = []
+    i = 0
+    while i < len(messages):
+        m = messages[i]
+        out.append(m)
+        i += 1
+        if m.role != "assistant" or not m.tool_calls:
+            continue
+        # this turn's results are the contiguous run of tool messages after it
+        answered: set[str] = set()
+        while i < len(messages) and messages[i].role == "tool":
+            if messages[i].tool_call_id:
+                answered.add(messages[i].tool_call_id)
+            out.append(messages[i])
+            i += 1
+        # keep synthesized results inside that run: the Anthropic adapter
+        # merges consecutive tool results into one user message and only
+        # merges into the *preceding* block, so a stray result placed after
+        # the next assistant turn would be orphaned all over again
+        for tc in m.tool_calls:
+            if tc.id not in answered:
+                log.info("Answering unrecorded tool_call %s (%s)", tc.id, tc.name)
+                out.append(Message(role="tool", content=INTERRUPTED_TOOL_RESULT,
+                                   tool_call_id=tc.id))
+    return out
 
 
 def _msg_chars(m: Message) -> int:

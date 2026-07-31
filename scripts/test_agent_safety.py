@@ -113,7 +113,8 @@ async def collect_with_approvals(stream, decisions: dict[int, bool]):
     task = asyncio.create_task(consume())
     while not task.done():
         await asyncio.sleep(0.02)
-        # resolve once the loop has parked the future (it registers after yielding)
+        # the loop registers the future before announcing it, so an id in
+        # _pending_approvals is always resolvable
         pending = list(agent._pending_approvals)
         if pending and seen in decisions:
             resolve_approval(pending[0], decisions[seen])
