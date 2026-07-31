@@ -54,8 +54,10 @@ CATALOG: list[dict] = [
      "tags": ["chat", "reasoning"], "blurb": "Reasoning-tuned distilled model."},
     {"name": "gemma2:9b", "params": "9B", "size_gb": 5.4, "min_vram_gb": 8, "min_ram_gb": 12,
      "tags": ["chat"], "blurb": "Google's strong 9B chat model."},
-    {"name": "llava:7b", "params": "7B", "size_gb": 4.7, "min_vram_gb": 6, "min_ram_gb": 10,
-     "tags": ["chat", "vision"], "blurb": "Multimodal - can look at images."},
+    # No vision models here on purpose: message content is text-only end to end
+    # (see the whitepaper's limitations), and the attachment endpoint rejects
+    # images outright. Recommending a model for a capability the app cannot
+    # accept input for is worse than not listing it.
     {"name": "qwen2.5:14b", "params": "14B", "size_gb": 9.0, "min_vram_gb": 12, "min_ram_gb": 18,
      "tags": ["chat", "tools", "code"], "blurb": "Bigger, sharper - needs a real GPU."},
     {"name": "gemma2:27b", "params": "27B", "size_gb": 16.0, "min_vram_gb": 20, "min_ram_gb": 32,

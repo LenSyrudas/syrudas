@@ -76,8 +76,9 @@ export default function ChatView({
   onOpenSettings,
 }: Props) {
   const [items, setItems] = useState<ChatItem[]>([])
-  // External launchers (e.g. the VS Code extension) prefill the composer via
-  // ?prompt= - read once, then scrub it from the URL so reloads start clean.
+  // Any external caller can prefill the composer via ?prompt= (a shortcut, a
+  // script, another editor) - read once, then scrub it from the URL so reloads
+  // start clean.
   const [input, setInput] = useState(() => {
     const prompt = new URLSearchParams(window.location.search).get('prompt')
     if (prompt) window.history.replaceState(null, '', window.location.pathname)

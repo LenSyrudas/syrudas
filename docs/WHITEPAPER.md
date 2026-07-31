@@ -1,8 +1,59 @@
 # Syrudas AI: A Local-First AI Workspace with Pluggable Model Providers
 
-**Version 0.7.3 · July 2026 · Len · MIT License**
+**Version {{VERSION}} · July 2026 · Len · MIT License**
 
 ---
+
+## In brief
+
+Syrudas AI is a program you install on your own Windows PC. It gives you a chat
+window for talking to an AI, much like the well-known online assistants, with one
+difference: nothing you type has to leave your computer.
+
+You choose which AI answers you. It can be one running entirely on your own
+machine — downloaded once and stored locally — so your conversations never touch
+the internet at all. Or it can be one of the commercial services, if you have an
+account and prefer their answers. Either way you use the same window, the same
+saved history, and the same settings. Switching between them takes a few seconds
+and changes nothing else about how the program behaves.
+
+Beyond conversation, the AI can be given permission to *do* things: run commands,
+read and write files in folders you nominate, search the web, and remember facts
+between conversations. Anything genuinely risky stops and asks you first — every
+time, showing you exactly what it proposes to do before it does it. It can also
+read your own documents, such as a folder of notes or reports, and answer
+questions about them without uploading anything.
+
+The rest of this paper explains how the program is built and why. It is written
+for readers who want that level of detail. **Key terms**, immediately below,
+defines the technical vocabulary that recurs throughout; Sections 1 and 2 give
+the reasoning and the overall shape; the remaining sections take each part in
+turn, and Section 19 is a candid account of what the system does not yet do well.
+
+## Contents
+
+{{CONTENTS}}
+
+## Key terms
+
+| Term | What it means here |
+|------|--------------------|
+| Model | The AI itself — the component that reads your message and writes a reply. |
+| Provider | A service that runs a model. May be software on your own PC or a company's website. |
+| Local model | A model running on your own hardware, with no internet involved. |
+| Token | The unit models read and write in — roughly three-quarters of a word. |
+| Context window | How much of a conversation a model can consider at once, measured in tokens. Older material falls out when it fills. |
+| Streaming | Showing a reply word by word as it is produced, rather than waiting for all of it. |
+| Agent mode | A setting where the AI may take actions on your behalf, not just reply. |
+| Tool | One specific action the AI can take, such as reading a file or searching the web. |
+| Tool call | The AI's request to use a tool, which the program then carries out. |
+| Approval gate | The prompt asking your permission before a risky tool runs. Nothing risky bypasses it. |
+| Plugin | A small file that teaches the program to talk to a new provider, added without changing the program itself. |
+| MCP | Model Context Protocol — a shared standard letting outside programs offer tools to the AI. |
+| Retrieval | Searching your own documents for passages relevant to a question, and showing them to the model. |
+| Embedding | A numeric fingerprint of a passage of text, used to find passages with similar meaning. |
+| Prompt injection | Text hidden in a web page or document that tries to issue instructions to the AI as though you had written them. |
+| Loopback | The address `127.0.0.1`, meaning "this computer only" — unreachable from the network. |
 
 ## Abstract
 
@@ -11,7 +62,8 @@ user's own machine. It offers streaming chat, an autonomous agent mode with
 tool use and Model Context Protocol (MCP) support, durable cross-conversation
 memory, local retrieval over the user's own files, a deep-research pipeline, a
 blind model-comparison arena, an AI-assisted writing editor, a hardware-aware
-model cookbook, and editor integration. What makes this breadth tractable for
+model cookbook, and an OpenAI-compatible endpoint that lets other tools use the
+same configured backends. What makes this breadth tractable for
 a single maintainer is a deliberate architectural bet: **the model is a
 plugin.** Every backend — local weights or a hosted frontier API — reaches the
 application through one small contract, and nothing above that contract knows
@@ -24,6 +76,14 @@ single-user tool can honestly promise.
 ---
 
 ## 1. Motivation
+
+**In plain terms.** Why build this at all. Most AI chat happens on somebody
+else's computer: you type, your words travel to a company's servers, and your
+conversations stay there. This project starts from the opposite position — the
+program runs on your machine — and adds one idea. The AI itself is the part of
+this technology that changes fastest, so it is built to be the easiest piece to
+swap out, and everything you actually want to keep is arranged so it does not
+have to change when the AI does.
 
 Using a large language model increasingly means renting a seat in a vertically
 integrated stack: one vendor's model, behind one vendor's application, with the
@@ -70,14 +130,21 @@ lets those goals coexist inside a codebase one person can hold in their head.
 
 ## 2. System overview
 
+**In plain terms.** What the pieces are. There are two halves. One is a small
+program that runs quietly in the background on your PC and does the actual work:
+talking to the AI, saving your conversations, running anything the AI is allowed
+to run. The other is the window you look at. They talk to each other over your
+own machine and nowhere else. For everyday use both halves are wrapped into a
+single file you double-click, so you never see the seam.
+
 Syrudas is a two-tier application with a deliberately small surface between the
 tiers. The **backend** is Python 3.13 on FastAPI: it serves a REST and
 streaming API, owns a single SQLite database, runs the agent and research
 loops, and hosts the provider, MCP, and retrieval subsystems. The **frontend**
 is a React 19 / TypeScript single-page app built with Vite — chat, editor,
 arena, cookbook, and settings — compiled to static assets that the backend
-serves. The same compiled bundle runs in three places without modification: an
-ordinary browser tab, the packaged desktop window, and a VS Code panel.
+serves. The same compiled bundle runs unmodified in an ordinary browser tab and
+in the packaged desktop window; nothing about it assumes which.
 
 The packaged desktop application wraps both tiers in a native window (pywebview
 over the Windows WebView2 runtime), with the FastAPI server running on a
@@ -114,12 +181,20 @@ where the user left off.
 │                                             └── plugins/*.py (drop-in)   │
 │  SQLite (syrudas.db) · data/workspace · plugins/                         │
 └───────────────────────────────────────────────────────────────────────────┘
-        ▲                                    ▲
-        │ VS Code extension (panel,          │ Continue / any OpenAI-
-        │ ask-about-selection)               │ compatible client via /v1
+                                             ▲
+                                             │ Continue / aider / any
+                                             │ OpenAI-compatible client via /v1
 ```
 
 ## 3. The provider contract
+
+**In plain terms.** A *provider* is whatever is actually running the AI — a
+program on your own PC, or a company's service you have an account with. This
+section sets out the short list of things any provider must be able to do to be
+usable here: say which models it offers, and hold a conversation. That list is
+the whole agreement. Anything that can meet it can be plugged in, and the rest
+of the program never needs to know which one answered — which is what makes
+adding a new AI service a small, contained job instead of a rewrite.
 
 Everything in the previous section rests on a single class. A provider *type*
 is a Python class; a provider *instance* is that class configured with user
@@ -178,6 +253,14 @@ from the embedding-model picker.
 
 ## 4. The normalized interior
 
+**In plain terms.** Different AI services describe the same simple things —
+"here is a message", "here is a reply" — in different formats. Rather than let
+those differences leak through the whole program, each one is translated once at
+the edge into a single shared vocabulary. Inside, a message is just a message,
+whatever produced it. Only the small translator written for each service knows
+the difference, which is why the rest of the program stays the same size as more
+services are added.
+
 The abstraction in Section 3 is only cheap because the types it exchanges are
 few and stable. They live in one module and are shared verbatim by every
 provider, route, and persistence call:
@@ -212,6 +295,16 @@ belongs.
 
 ## 5. The chat pipeline
 
+**In plain terms.** What happens between pressing Enter and seeing an answer.
+The reply arrives a piece at a time rather than all at once, which is why it
+appears to type itself. Two safeguards are worth knowing about: your
+conversation is written down as it arrives rather than only at the end, so an
+interruption does not lose it; and if you edit or delete a conversation while a
+reply is still on its way, that reply cannot come back and overwrite what you
+did. The section closes with the one real weakness here — how much of a long
+conversation the AI is shown, and why that limit is currently cruder than it
+should be.
+
 `POST /api/chat` accepts a message, persists it, and returns a streamed NDJSON
 body: one JSON event per line, consumed on the client by a `ReadableStream`
 reader. NDJSON-over-POST was chosen over two obvious alternatives for concrete
@@ -223,9 +316,11 @@ event model of Section 4.
 
 Two robustness properties are worth naming because they recur throughout the
 system. First, **messages are persisted as they complete**, so a conversation
-survives an interrupted stream, an application restart, or a version upgrade;
-the partial assistant text produced before a mid-stream failure is still
-written. Second, each conversation carries a **generation counter**. When
+survives an application restart or a version upgrade, and the partial assistant
+text produced before a *provider* failure mid-stream is still written. A client
+that disconnects is a different case — the generator is torn down rather than
+allowed to finish — and Section 6 describes the exit contract that governs it.
+Second, each conversation carries a **generation counter**. When
 history is rewritten out of band — a rewind, an edit-and-resend, a delete — the
 counter is bumped, and any still-running stream checks it before persisting.
 This is the mechanism that stops a "zombie" stream (client gone, cancellation
@@ -246,12 +341,31 @@ a reload instead of living only in the open tab. In agent mode, where one turn
 may make several provider calls, counts are recorded per step against the
 message that step produced.
 
-Long conversations are trimmed to fit the model's context before each turn: the
-system prompt and the newest messages always survive, the oldest turns fall off
-first, and a tool result whose originating tool call was trimmed away is
-dropped rather than sent as a dangling reference that confuses backends.
+Long conversations are trimmed before a turn begins: the system prompt and the
+newest messages always survive, the oldest turns fall off first, and a tool
+result whose originating tool call was trimmed away is dropped rather than sent
+as a dangling reference that confuses backends.
+
+Two caveats belong here rather than in a footnote, because they are the sharpest
+edges in the current system. The budget is a fixed character count, identical for
+every model, not a token count derived from the one actually selected — the
+provider contract does not yet report a context window to size it against, so the
+same number is simultaneously conservative for a long-context model and optimistic
+for a small one. And in agent mode the trim runs once, before the first step;
+a tool-heavy turn appends results as it goes and can therefore grow past the budget
+within a single turn, which is precisely when it can least afford to. Section 19
+treats both as open work rather than settled design.
 
 ## 6. Agent mode
+
+**In plain terms.** Normally the AI only writes back to you. In agent mode it
+can also *do* things — run a command, read or write a file, look something up on
+the web. It works in a loop: decide what to do, do it, look at what came back,
+decide again, and stop when the job is done or when it hits a fixed ceiling on
+how many turns it may take. Anything genuinely risky pauses and asks your
+permission first, showing you exactly what it proposes to do. The section ends
+with what happens when you press Stop halfway through, which turns out to be one
+of the harder problems here and was, until recently, got wrong.
 
 Agent mode turns a conversation into a plan-act loop. The model receives the
 tool schemas alongside the conversation; any tool calls it returns are
@@ -273,6 +387,7 @@ posture:
 | `web_fetch` | Fetch a URL as readable text | **Per-call approval**; refuses private IPs |
 | `memory_save` / `memory_delete` / `memory_search` | Durable facts | Ungated, fully user-visible |
 | `knowledge_search` | Retrieve indexed passages | Ungated, read-only |
+| MCP server tools | Whatever the registered server exposes | Ungated — see Section 19 |
 
 **The approval gate.** The one-way NDJSON stream cannot pause for a dialog box,
 so consent arrives out of band. When the agent proposes a gated call, the loop
@@ -284,6 +399,30 @@ denied this tool call" as an ordinary tool result — so a denial redirects the
 model rather than crashing the run. Approvals have a timeout so an abandoned
 run cannot park forever, and they are single-shot: an unknown or already-used
 id is rejected. There is deliberately no "always allow."
+
+**The exit contract.** A loop that can be cancelled at any await needs a defined
+answer for every way it can end, because the assistant message carrying a turn's
+tool calls is written to the database *before* any tool runs. Both the OpenAI and
+Anthropic wire formats reject an assistant tool call with no answering tool
+result, so a run that dies between those two writes leaves a conversation that
+fails validation on every later turn — permanently, since the rows are already on
+disk. The loop therefore closes its own gaps. The tool phase is wrapped so that
+every exit path — a finished step, a provider error, the step ceiling, a denial,
+or a cancellation from Stop or a dropped connection — records a result for each
+call it announced, handing that write to a task outside the cancelled scope
+because a cancelled context cannot await anything. Results are recorded *before*
+they are streamed to the client, so a disconnect at the moment of announcement
+cannot discard work a tool genuinely completed. Every termination also persists a
+short note saying which ending it was, so a transcript never simply stops without
+explanation.
+
+Reconstruction applies the same rule defensively rather than trusting the loop to
+have been the only writer: assembling history synthesizes a placeholder for any
+tool call it finds unanswered. That repairs conversations damaged before the
+contract existed, and any that a power loss or a hard kill still manages to
+interrupt. The two layers are deliberate — the loop handles the graceful cases
+precisely, and the repair pass covers the cases where nothing graceful was
+possible.
 
 **Per-call, argument-aware gating.** Gating is not a static property of a tool
 but a decision made per invocation, through a `needs_approval(args)` hook. This
@@ -310,6 +449,14 @@ session object.
 
 ## 7. Persistent memory
 
+**In plain terms.** Things worth carrying from one conversation to the next —
+that you prefer short answers, what project you are working on, a decision you
+made last week. The AI writes these down as short notes and reads them back at
+the start of later conversations, so you are not repeating yourself. You can see
+the entire list and delete anything from it at any time, and nothing is
+remembered from ordinary chat — only from agent mode, where you have already
+opted into the AI doing things.
+
 An agent that forgets everything between conversations is a weaker assistant
 than the model's weights allow. Memory addresses this with deliberate modesty.
 The `memory_save` tool records a short, distilled fact; the newest memories,
@@ -330,6 +477,15 @@ prompt; they are never baked into a conversation's stored prompt, so deleting a
 memory truly forgets it everywhere.
 
 ## 8. Knowledge: local retrieval
+
+**In plain terms.** You can point the program at a folder of your own documents
+— notes, reports, code, PDFs. It reads them once and builds an index, rather
+like the index at the back of a book, except organised by *meaning* rather than
+by exact wording, so a search for "holiday pay" can find a passage that only
+says "annual leave entitlement". When you later ask a question, it finds the
+handful of relevant passages and shows just those to the AI. This is how you can
+ask about far more text than the AI could ever read in one go, and none of it is
+uploaded anywhere.
 
 Retrieval lets the workspace answer from documents far larger than any context
 window, without those documents ever leaving the machine — the local-first
@@ -360,6 +516,14 @@ research.
 
 ## 9. Deep research
 
+**In plain terms.** Ask a question and this searches the web, reads the pages it
+finds, and writes you a short report that says where each claim came from, so
+you can check it. The important design choice is that it follows a fixed set of
+steps — plan, search, read, write — rather than working out what to do as it
+goes. That makes it far more dependable with the smaller AI models people run at
+home, which are good at one well-defined task at a time and unreliable when
+asked to steer themselves through fifteen.
+
 Deep Research answers a question by reading the web and the local index, then
 writing a cited report. The notable design choice is that it is a
 **deterministic pipeline, not an autonomous agent loop**: plan, then gather,
@@ -385,6 +549,12 @@ routing new features through the existing normalized model.
 
 ## 10. The writing editor
 
+**In plain terms.** A place to write documents, with the AI on hand for editing
+rather than conversation. Select a sentence and ask for it to be shortened,
+expanded or tidied, and the suggestion appears beside your text for you to
+accept or reject. Nothing is changed without your say-so, and your documents
+save themselves as you type.
+
 The editor is a local document workspace with AI editing folded in. Documents
 autosave to SQLite. A user selects text and applies a preset action (Improve,
 Shorten, Expand, Fix grammar), continues from the cursor, or issues a custom
@@ -407,6 +577,12 @@ under real use, and both were closed before the feature shipped.
 
 ## 11. The blind arena
 
+**In plain terms.** A way to find out which AI is genuinely better at the things
+*you* ask, rather than trusting a published benchmark. The same question goes to
+two of them, the two answers appear side by side with the names hidden, and you
+pick the one you prefer. Only then are the names revealed. Repeat a few times
+and you have a scoreboard built from your own judgement.
+
 The arena exists to answer a question the multi-provider core makes cheap to
 ask: which model is actually better for *my* prompts? It runs one prompt
 against two chosen models with their identities hidden — a coin flip decides
@@ -419,6 +595,13 @@ win/loss/tie leaderboard. Almost all of the feature is a view; the routing that
 makes it possible was already built for chat.
 
 ## 12. The model cookbook
+
+**In plain terms.** AI models come in different sizes, and one too large for
+your computer will either crawl or refuse to start — which is a miserable way to
+discover the limit. This page looks at what hardware you actually have and says
+plainly which models will fit comfortably, which will be tight, and which will
+not run, then downloads the ones you choose. It is a convenience rather than a
+gatekeeper: models obtained any other way work exactly the same.
 
 The cookbook is the one subsystem that reaches slightly outside the
 "model is a plugin" frame, and it does so carefully. It detects local hardware
@@ -441,6 +624,12 @@ cookbook page load can never freeze a concurrent chat or research stream.
 
 ## 13. Interoperability
 
+**In plain terms.** Other programs on your computer can borrow the AI setups you
+have configured here, instead of you entering the same accounts and keys into
+every tool separately. Your PC becomes the one place models and keys live, and
+anything that speaks the common industry format — a coding assistant, a script
+you wrote — can use them by pointing at a single address.
+
 Syrudas is both a *client* of the OpenAI dialect, through `openai_compat`, and
 a *server* of it. The `/v1` surface exposes every model of every configured
 provider under a namespaced id (`ollama-local/llama3.1:8b`), and
@@ -453,12 +642,26 @@ adapter for every editor and tool that might want to use it, any
 OpenAI-compatible client adopts Syrudas as its backend by changing one base
 URL — and in doing so gains uniform access to every model the user has
 configured, local and hosted alike, behind a single endpoint. The Continue
-extension for VS Code is the reference consumer. A dedicated VS Code extension
-complements the hub: it embeds the full workspace UI in an editor panel and
-adds a right-click *Ask About Selection* command that opens a chat prefilled
-with the selected code via a `?prompt=` deep link.
+extension for VS Code is the reference consumer, and gains something a chat
+window cannot offer — inline completions and edits applied directly in the
+editor. Command-line tools such as aider work the same way.
+
+An earlier release also shipped a dedicated VS Code extension that embedded the
+workspace UI in an editor panel. It was removed: it wrapped the same web app in
+an iframe rather than integrating with the editor, so it duplicated what a
+browser tab already did while adding a separate distribution channel and a
+version-drift surface. The one capability worth keeping — launching a chat
+prefilled from an external caller — was never the extension's to begin with. It
+is a `?prompt=` parameter honored by the web app itself, and remains available
+to any caller.
 
 ## 14. File attachments
+
+**In plain terms.** You can drag a file onto a message. The program pulls the
+readable text out of it and includes that text in what it sends. It handles
+plain text, code, spreadsheet exports and PDFs. Anything it cannot read — an
+image, a scanned document with no text in it — it refuses with a clear
+explanation rather than quietly sending gibberish.
 
 Attachments follow a stateless pipeline that mirrors the rest of the system's
 preference for keeping state in one place. The client uploads a file to
@@ -478,6 +681,14 @@ features compose: attach for a one-off, index for a corpus.
 
 ## 15. Security and privacy model
 
+**In plain terms.** What this program can and cannot honestly promise about
+keeping your things private — including where it falls short, because a security
+section that lists only strengths is an advertisement. The short version: it
+accepts connections from your own machine and no other, it never reports
+anything to anyone, and the genuinely risky things the AI can do all stop to ask
+you first. The longer version below names the parts that remain imperfect,
+including one that was found and fixed while this edition was being written.
+
 The threat model is honest about what a local, single-user tool can and cannot
 promise, and the posture is layered.
 
@@ -495,8 +706,24 @@ promise, and the posture is layered.
 - **Model-initiated actions.** The genuinely dangerous capabilities — arbitrary
   shell, web fetch, and file writes outside the workspace — are each gated per
   call with no persistent allow. File access is deny-by-default outside the
-  workspace plus explicit grants. Instructions embedded in fetched or retrieved
-  text are framed as data, not commands.
+  workspace plus explicit grants. Instruction/data separation is currently
+  uneven, and is stated here rather than glossed: the deep-research pipeline
+  fences untrusted source text in explicit begin/end markers, strips counterfeit
+  markers a page may itself contain, and instructs the model to treat the
+  contents as information even where the text claims otherwise. Agent mode does
+  not yet do this — tool output, including fetched pages and retrieved passages,
+  is appended to the conversation unmarked. Giving the agent loop the same
+  fencing is tracked work, not a design position.
+- **Static file serving.** The route that serves the single-page application
+  resolves each request path against the bundled web assets and refuses anything
+  that resolves outside them, falling back to the application shell. Resolution
+  also collapses symlinks, so a link placed inside the bundle cannot point out of
+  it. Containment matters more here than for an ordinary static-file route,
+  because these assets are served from the application's own origin: a local file
+  served through this path would not merely be readable, it would execute — any
+  HTML on disk would gain same-origin access to `/api` and `/v1`. That
+  containment check was added after version 0.7.4; earlier builds resolved the
+  path without it, and anyone still running one should update.
 - **Data at rest.** Conversations, settings, memories, indexed chunks,
   documents, and provider API keys live in one local SQLite file. Keys are
   stored in plaintext — an OS-keychain integration is future work — but are
@@ -515,6 +742,14 @@ promise, and the posture is layered.
   only as good as its honesty about the edges.
 
 ## 16. Accessibility and theming
+
+**In plain terms.** How the program looks, and whether it can be used
+comfortably by people who cannot use a mouse or who see colour differently. Two
+principles carry most of the weight. Colour never carries meaning on its own —
+anything shown in red or green also says so in words and with an icon — so
+nothing is lost if those colours read differently to you. And the light/dark
+setting is kept separate from the colour-vision setting, so you are never forced
+to accept a background you dislike in order to get a palette you can read.
 
 Appearance and colour vision are treated as two independent axes, so a
 colour-blind user is never forced to choose between an accessible palette and a
@@ -540,10 +775,28 @@ hover — the per-message copy and edit controls, the per-code-block copy button
 are faded rather than hidden outright, because a control hidden with
 `visibility` is removed from the tab order entirely and can never receive the
 focus that would reveal it; kept at zero opacity they remain focusable and
-appear on keyboard focus. The workspace is therefore navigable and operable with
-a screen reader and without a mouse, not only readable under an adapted palette.
+appear on keyboard focus.
+
+The honest boundary of that work is keyboard operability, not screen-reader
+support, and the distinction matters enough to draw. Named controls and a
+correct tab order are necessary for a screen reader and not sufficient for one:
+the application currently declares no live region, so streamed replies and tool
+state changes are not announced as they arrive, and the collapsible tool card
+remains the one control driven by pointer events alone. A user navigating by
+keyboard is well served today; a user listening is not yet, and the gap is
+specific enough to close — a live region on the transcript, message-level status
+announcements rather than per-token ones, and keyboard semantics on that card.
+That work, and a screen-reader pass to validate it, is Section 19 material.
 
 ## 17. Testing and assurance
+
+**In plain terms.** How the project checks its own work. Every part has
+automated tests that run the real program against a stand-in for the AI, so they
+finish in seconds and need no internet connection. More interesting than the
+list of what is tested is the question of when a test can be *trusted*: a test
+that would pass whether or not the thing it checks is broken is worse than no
+test, because it gets mistaken for safety. Two examples in this section show how
+that was checked rather than assumed.
 
 A one-person codebase of this breadth stays trustworthy only with a testing
 discipline that matches. Every subsystem ships with an offline test suite that
@@ -555,6 +808,27 @@ embedder makes retrieval ranking meaningful without a model. Because the fakes
 sit only at the true boundaries — the network, the model — the suites verify
 the system's own behavior, and they need no network, no GPU, and no running
 model, so they run anywhere in seconds.
+
+Cancellation is tested on the same principle, because it is the behavior least
+likely to be exercised by hand and the most expensive to get wrong. A dedicated
+suite drives the real loop, interrupts it mid-tool-call and mid-approval, and
+asserts what must hold afterwards: no tool call left unanswered, no approval id
+leaked, a recorded reason for the ending, a completed result never replaced by a
+placeholder, and a history that still assembles into a valid provider request.
+Fakes make those assertions cheap and deterministic; because a scripted provider
+cannot reproduce the fragmented, interleaved tool calls a real backend streams,
+the same properties were also confirmed against a live local model.
+
+Choosing where to put the boundary is itself load-bearing, and the path
+containment of Section 15 is the clearest case. Its suite starts a real server
+on a loopback port rather than using an in-process test client, because such a
+client normalizes the request URL before the request is constructed — which
+silently repairs a percent-encoded traversal, the one form that survives the
+server's own normalization and reaches the handler intact. Tested through the
+convenient boundary, the suite would have passed over a live hole. Its
+assertions were then checked by removing the containment and confirming the
+suite fails, on the principle that a security test that cannot fail is worse
+than no test at all, because it is mistaken for coverage.
 
 That property is what makes the suites enforceable rather than merely
 available. A single entry point runs every offline suite alongside the
@@ -591,54 +865,141 @@ load-bearing behaviors have been attacked on purpose.
 
 ## 18. Packaging and distribution
 
-The release artifact is a portable zip: one PyInstaller onefile executable
-(windowed, over WebView2), the optional provider connectors, an end-user
-README, the setup guide, and the MIT license. Everything mutable lives beside
-the executable, so an installation is trivially copyable, movable, and
-deletable. On first run with an empty database, the server probes the
-well-known local backends — Ollama on `:11434`, LM Studio on `:1234` — and
-auto-configures any that respond, so a user who already runs a local model
-server reaches a working chat with zero configuration.
+**In plain terms.** How the program reaches you. It is one file you download and
+double-click, with everything it needs sealed inside it. Anything it saves —
+your conversations, your settings — goes in a folder next to that file. Nothing
+is installed into Windows itself, so moving it somewhere else is dragging a
+folder, and removing it is deleting one.
 
-Version identity is stamped from a single source of truth, `APP_VERSION`, into
-the health endpoint, the UI footer, and the Windows file properties of the
-executable, so the three can never disagree. Two Windows-specific build lessons
-are preserved in the codebase for posterity: PyInstaller bundles are invisible
-to `pkgutil`, which is why builtin provider adapters are imported statically;
-and PowerShell 5.1 under `$ErrorActionPreference = "Stop"` turns a native
-command's harmless stderr into a terminating error, which is why the build
-scripts wrap native calls in `cmd /c "... 2>&1"`.
+The release artifact is a portable zip holding four things: the PyInstaller
+onefile executable (windowed, over WebView2), an end-user README, the MIT
+license, and the optional provider connectors. It deliberately holds nothing
+else. Earlier editions also bundled this whitepaper and the setup guide, and
+both were wrong for the person receiving them: the setup guide was Markdown
+renamed `.txt`, so opening it produced a screenful of syntax, and half of it
+described building from source to somebody holding a finished executable. Both
+now live in the repository, linked from the README. The decision was not about
+size — they were 74 KB inside a 29 MB archive — but about what the folder looks
+like when the window opens, and how obvious the thing to double-click is.
+
+Everything mutable lives beside the executable, so an installation is trivially
+copyable, movable, and deletable, and extracting a newer release over an older
+folder leaves the data untouched. On first run with an empty database, the
+server probes the well-known local backends — Ollama on `:11434`, LM Studio on
+`:1234` — and auto-configures any that respond, so a user who already runs a
+local model server reaches a working chat with zero configuration.
+
+Version identity flows from `APP_VERSION` into the health endpoint, the UI
+footer, and — as of this revision — the cover of this document, substituted at
+render time rather than typed. One duplicate remains, and it is worth naming
+because the previous edition of this paper claimed the opposite: the Windows file
+properties of the executable are read from a separate `version_info.txt` that is
+maintained by hand, so cutting a release edits two files rather than one. Until
+that file is generated from `APP_VERSION` as well, the two can drift — and a
+shipped PDF whose cover disagreed with the build it accompanied is exactly what
+that drift looks like. The same version is now also stamped into the packaged
+README as the archive is assembled, so a copy sitting in somebody's downloads
+folder can say what it is without being launched.
+
+Three Windows-specific build lessons are preserved in the codebase for
+posterity. PyInstaller bundles are invisible to `pkgutil`, which is why builtin
+provider adapters are imported statically. PowerShell 5.1 under
+`$ErrorActionPreference = "Stop"` turns a native command's harmless stderr into
+a terminating error, which is why the build scripts wrap native calls in
+`cmd /c "... 2>&1"`. And a build script that hardcodes the path to a developer's
+own virtual environment runs nowhere else — not in a second checkout, not in
+continuous integration — which is why the packaging scripts now fall back to
+whatever `python` is on the path, as the test runner already did.
+
+The finished archive is then unpacked somewhere clean and **actually launched**,
+and the release is refused if the packaged application does not come up and
+serve its interface. That check exists because version 0.7.3 shipped broken:
+everything had been verified from source and the archive's contents inspected,
+but the executable itself was never run.
 
 ## 19. Limitations and roadmap
 
-The honest limitations are the mirror image of the design choices. The
-application is single-user by intent and Windows-only in its packaging, though
-the server itself is portable Python. Multimodality is text-only. Key storage
-is plaintext on disk. And model *download* management is specific to Ollama.
+**In plain terms.** What this does not do well yet, written on purpose and in
+detail. Every project has a section like this; most leave it vague. The ones
+that matter to you day to day are grouped first, then the deeper structural
+problems, then what is planned. If you only read one section of this paper to
+judge whether the project is honest, read this one.
 
-Much of the original roadmap has since shipped and is described above: native
-Anthropic and Gemini connectors, deep research, the blind arena, retrieval over
-local files, and an AI writing editor, alongside agent memory, the hardware
-cookbook, and the accessibility work. The directions that remain, in rough
-order of value, are image (vision) input carried through the same normalized
-schema; an optional local token on the `/v1` hub for shared machines;
-OS-keychain key storage; and the largest gap relative to a full
-personal-assistant suite — productivity integrations such as email, calendar,
-and notes, each of which is effectively its own subsystem and would be
-evaluated on its own terms rather than folded in for completeness.
+The honest limitations are the mirror image of the design choices. This edition
+states the engineering ones alongside the product ones, because the previous
+edition listed only the latter — and the engineering ones are what a reader
+evaluating the system would actually want to know.
+
+**Product boundaries.** The application is single-user by intent and Windows-only
+in a deeper sense than packaging: the shell tool spawns PowerShell directly,
+hardware detection reads WMI, the desktop shell targets WebView2, and the build
+and run scripts are PowerShell throughout. The web layer is portable Python, but
+a port would be genuine work rather than a packaging change, and everything below
+is written on the assumption that Windows remains the target. Multimodality is
+text-only: normalized message content is a string, a deliberate simplification
+that also means a vision-capable model can be selected but never fed an image.
+That mismatch was until recently advertised — the bundled catalogue recommended
+a vision model, and the attachment endpoint then refused images — and the
+catalogue entry has since been removed rather than left to promise something the
+program cannot accept. Key storage is plaintext on disk. Model *download*
+management is specific to Ollama.
+
+**Runtime limitations.** These matter more day to day than the boundaries above.
+The context budget is a fixed character count rather than a model-aware token
+count, and in agent mode it is applied once per turn rather than once per step
+(Section 5), so a tool-heavy run can evict the user's original request while it is
+still working on it. The file tools offer read, whole-file write, and list — no
+patch-style edit, no pagination, no search — so changing part of a large file
+means rewriting all of it, which is wasteful and, when a read was truncated, a
+data-loss shape rather than merely an inefficient one. Tool arguments are not
+validated against the schema the tool declares before dispatch. MCP tools inherit
+no approval gate, which makes registering a server the one action that grants the
+model more latitude than the builtin toolset does. And agent mode still lacks the
+instruction/data fencing that deep research already applies (Section 15).
+
+**Instrumentation.** A run leaves a transcript but not a record: no run
+identifier, no step timings, no aggregated cost, no behavioral evaluation suite.
+The practical consequence is that the two highest-leverage knobs in the system —
+the agent's system prompt and its tool descriptions — can be changed without any
+signal that behavior moved. Run identity and a small fixed task set to measure
+against are therefore near the top of the list, because they are the prerequisite
+for improving anything else with confidence rather than by impression.
+
+**Structural.** Agent mode and deep research are two orchestration loops that
+share a persistence helper and little else, so a fix applied to one is not a fix
+to the other. The tool interface accepts arguments but no run context, which is
+the pinch point for several items above. Both are the kind of change that grows
+more expensive with every feature layered on top, which is an argument for doing
+them earlier than their urgency alone would suggest.
+
+**Direction.** In rough order of value: the runtime limitations above; run
+instrumentation and evaluations; image input carried through the same normalized
+schema; OS-keychain key storage; and an optional local token on the `/v1` hub for
+shared machines. Productivity integrations — email, calendar, notes — remain the
+largest gap relative to a full personal-assistant suite, and each is effectively
+its own subsystem that would be evaluated on its own terms rather than folded in
+for completeness.
 
 ## 20. Conclusion
 
 Syrudas AI is an argument, made in code, that a genuinely capable AI workspace —
 streaming chat, consent-gated agency, local retrieval, deep research, model
-comparison, a writing editor, protocol interoperability, editor integration,
-and one-click distribution — fits inside a small, single-maintainer codebase
+comparison, a writing editor, protocol interoperability, and one-click
+distribution — fits inside a small, single-maintainer codebase
 when one abstraction is chosen well and enforced everywhere. Each feature in
 this paper is less an invention than a consequence: route it through the
 normalized model and the provider contract, and history, export, streaming, and
 provider-independence come for free. Models will keep changing, faster than
 anything else in the stack. A workspace whose only firm opinion about models is
 a five-method contract is built to outlast every one of them.
+
+Put without the vocabulary: this is a program that lets you talk to an AI on
+your own computer, keeps everything you say on that computer, and can let the AI
+do real work for you while stopping to ask before anything risky. It is built so
+that the AI part can be replaced whenever a better one appears, without
+disturbing your conversations, your documents, or the way you work. AI models
+will keep changing quickly. The point of building it this way is that you should
+not have to.
 
 ---
 

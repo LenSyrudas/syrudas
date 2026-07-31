@@ -11,17 +11,38 @@ import sys
 from pathlib import Path
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_JUSTIFY
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import (
-    HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle, XPreformatted,
+    CondPageBreak, HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer,
+    Table, TableStyle, XPreformatted,
 )
+from reportlab.platypus.tableofcontents import TableOfContents
+
+# Body text is set at 11.5pt inside 1.25in margins, which puts a line at about
+# 78 characters. The previous 10pt/0.9in setting measured ~100 characters per
+# line - well past the 50-75 that reads comfortably, and the single biggest
+# readability problem in the document regardless of vocabulary.
+MARGIN = 1.25 * inch
+BODY_SIZE = 11.5
+
+# A heading needs enough room beneath it to be worth starting: its own block is
+# ~39pt, so this leaves at least three lines of body text. Below that, break to
+# the next page rather than stranding the heading at the foot of this one.
+# Deliberately not reportlab's keepWithNext, which binds the heading to the
+# WHOLE next paragraph and pushes headings off pages that had ample room.
+SECTION_HEADROOM = 1.25 * inch
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "docs" / "WHITEPAPER.md"
 OUT = ROOT / "docs" / "Syrudas-AI-Whitepaper.pdf"
+
+# the cover version is substituted at render time rather than hand-typed: a
+# stale number on a shipped PDF is exactly the kind of drift the document
+# claims not to have
+sys.path.insert(0, str(ROOT))
+from server.config import APP_VERSION  # noqa: E402
 
 INK = colors.HexColor("#1c2333")
 ACCENT = colors.HexColor("#3b5fc0")
@@ -29,24 +50,32 @@ DIM = colors.HexColor("#5a6172")
 CODE_BG = colors.HexColor("#f2f4f8")
 BORDER = colors.HexColor("#c9cfdb")
 
-BASE = dict(fontName="Helvetica", fontSize=10, leading=14.5, textColor=INK)
+BASE = dict(fontName="Helvetica", fontSize=BODY_SIZE, leading=17, textColor=INK)
 STYLES = {
     "title": ParagraphStyle("title", fontName="Helvetica-Bold", fontSize=21,
                             leading=26, textColor=INK, spaceAfter=4),
     "meta": ParagraphStyle("meta", fontName="Helvetica", fontSize=10.5,
                            leading=14, textColor=DIM, spaceAfter=10),
-    "h1": ParagraphStyle("h1", fontName="Helvetica-Bold", fontSize=13.5,
-                         leading=17, textColor=ACCENT, spaceBefore=16, spaceAfter=6),
-    "body": ParagraphStyle("body", alignment=TA_JUSTIFY, spaceAfter=7, **BASE),
-    "bullet": ParagraphStyle("bullet", leftIndent=16, bulletIndent=4,
-                             spaceAfter=4, **BASE),
+    "h1": ParagraphStyle("h1", fontName="Helvetica-Bold", fontSize=14.5,
+                         leading=18, textColor=ACCENT, spaceBefore=18, spaceAfter=7),
+    # Ragged right rather than justified: without hyphenation, justifying this
+    # measure opens rivers of white space and irregular word gaps, which costs
+    # more legibility than the tidy right edge buys.
+    # allowWidows/allowOrphans=0: never leave a paragraph's first or last line
+    # alone on the far side of a page break.
+    "body": ParagraphStyle("body", spaceAfter=9,
+                           allowWidows=0, allowOrphans=0, **BASE),
+    "bullet": ParagraphStyle("bullet", leftIndent=18, bulletIndent=5,
+                             spaceAfter=6, allowWidows=0, allowOrphans=0, **BASE),
     "code": ParagraphStyle("code", fontName="Courier", fontSize=7.4, leading=9.2,
                            textColor=INK, backColor=CODE_BG, borderColor=BORDER,
                            borderWidth=0.6, borderPadding=7, spaceBefore=4, spaceAfter=8),
-    "cell": ParagraphStyle("cell", fontName="Helvetica", fontSize=9,
-                           leading=12, textColor=INK),
-    "cellhead": ParagraphStyle("cellhead", fontName="Helvetica-Bold", fontSize=9,
-                               leading=12, textColor=colors.white),
+    "cell": ParagraphStyle("cell", fontName="Helvetica", fontSize=9.5,
+                           leading=13, textColor=INK),
+    "cellhead": ParagraphStyle("cellhead", fontName="Helvetica-Bold", fontSize=9.5,
+                               leading=13, textColor=colors.white),
+    "toc": ParagraphStyle("toc", fontName="Helvetica", fontSize=11, leading=17,
+                          textColor=INK),
 }
 
 
@@ -110,12 +139,21 @@ def parse(md: str, text_width: float):
             while i < len(lines) and not lines[i].strip().startswith("```"):
                 block.append(lines[i])
                 i += 1
-            story.append(XPreformatted(
-                esc("\n".join(block).translate(BOX_TO_ASCII)), STYLES["code"]))
+            # a diagram split down the middle is unreadable; keep it whole
+            # (KeepTogether degrades to a normal split if it exceeds a page)
+            story.append(KeepTogether(XPreformatted(
+                esc("\n".join(block).translate(BOX_TO_ASCII)), STYLES["code"])))
+        elif stripped == "{{CONTENTS}}":
+            flush_para()
+            toc = TableOfContents()
+            toc.levelStyles = [STYLES["toc"]]
+            toc.dotsMinLevel = 0
+            story.append(toc)
         elif stripped.startswith("# ") and not story:
             story.append(Paragraph(inline(stripped[2:]), STYLES["title"]))
         elif stripped.startswith("## "):
             flush_para()
+            story.append(CondPageBreak(SECTION_HEADROOM))
             story.append(Paragraph(inline(stripped[3:]), STYLES["h1"]))
         elif stripped.startswith("|"):
             flush_para()
@@ -127,9 +165,11 @@ def parse(md: str, text_width: float):
                 i += 1
             i -= 1
             if rows:
-                story.append(Spacer(1, 3))
-                story.append(make_table(rows, text_width))
-                story.append(Spacer(1, 7))
+                # a table cut across a page loses its header row and its
+                # meaning; these are all small enough to keep whole
+                story.append(KeepTogether([
+                    Spacer(1, 3), make_table(rows, text_width), Spacer(1, 7),
+                ]))
         elif re.match(r"^(-|\d+\.)\s+", stripped):
             flush_para()
             m = re.match(r"^(-|\d+\.)\s+(.*)$", stripped)
@@ -160,25 +200,38 @@ def footer(canvas, doc):
     canvas.saveState()
     canvas.setFont("Helvetica", 8)
     canvas.setFillColor(DIM)
-    canvas.drawString(0.9 * inch, 0.55 * inch, "Syrudas AI — Whitepaper")
-    canvas.drawRightString(letter[0] - 0.9 * inch, 0.55 * inch, f"Page {doc.page}")
+    canvas.drawString(MARGIN, 0.55 * inch, "Syrudas AI — Whitepaper")
+    canvas.drawRightString(letter[0] - MARGIN, 0.55 * inch, f"Page {doc.page}")
     canvas.setStrokeColor(BORDER)
     canvas.setLineWidth(0.5)
-    canvas.line(0.9 * inch, 0.72 * inch, letter[0] - 0.9 * inch, 0.72 * inch)
+    canvas.line(MARGIN, 0.72 * inch, letter[0] - MARGIN, 0.72 * inch)
     canvas.restoreState()
 
 
+class WhitepaperDoc(SimpleDocTemplate):
+    """SimpleDocTemplate that reports its section headings to the contents page."""
+
+    def afterFlowable(self, flowable) -> None:
+        if isinstance(flowable, Paragraph) and flowable.style.name == "h1":
+            text = flowable.getPlainText()
+            if text != "Contents":  # a contents page listing itself is noise
+                self.notify("TOCEntry", (0, text, self.page))
+
+
 def main() -> int:
-    doc = SimpleDocTemplate(
+    doc = WhitepaperDoc(
         str(OUT), pagesize=letter,
-        leftMargin=0.9 * inch, rightMargin=0.9 * inch,
+        leftMargin=MARGIN, rightMargin=MARGIN,
         topMargin=0.8 * inch, bottomMargin=0.95 * inch,
         title="Syrudas AI: A Local-First AI Workspace with Pluggable Model Providers",
         author="Len",
     )
-    text_width = letter[0] - 1.8 * inch
-    story = parse(SRC.read_text(encoding="utf-8"), text_width)
-    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    text_width = letter[0] - 2 * MARGIN
+    source = SRC.read_text(encoding="utf-8").replace("{{VERSION}}", APP_VERSION)
+    story = parse(source, text_width)
+    # multiBuild: the contents page needs page numbers that only exist after a
+    # first pass, so the document is laid out repeatedly until they settle
+    doc.multiBuild(story, onFirstPage=footer, onLaterPages=footer)
     print("wrote", OUT)
     return 0
 

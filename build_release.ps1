@@ -32,17 +32,44 @@ New-Item -ItemType Directory $appdir | Out-Null
 
 Copy-Item "SyrudasAI.exe" $appdir
 Copy-Item "LICENSE" (Join-Path $appdir "LICENSE.txt")
-Copy-Item "packaging\README.txt" $appdir
-if (Test-Path "docs\Syrudas-AI-Whitepaper.pdf") {
-    Copy-Item "docs\Syrudas-AI-Whitepaper.pdf" $appdir
-}
-if (Test-Path "docs\SETUP.md") {
-    Copy-Item "docs\SETUP.md" (Join-Path $appdir "SETUP.txt")
-}
+
+# stamp the version into the end-user readme rather than hand-maintaining it:
+# a zip on someone's disk should say what it is without being launched.
+# WriteAllText with an explicit no-BOM encoding, because Set-Content -Encoding
+# utf8 on PowerShell 5.1 emits a BOM, which some editors render as "i>>?" on
+# the very first line the user reads.
+$readme = (Get-Content "packaging\README.txt" -Raw).Replace("{{VERSION}}", "v$version")
+[System.IO.File]::WriteAllText(
+    (Join-Path $appdir "README.txt"), $readme,
+    (New-Object System.Text.UTF8Encoding $false))
+
+# The zip carries only what it takes to run: the exe, the page that gets you to
+# double-clicking it, and the licence MIT requires be distributed with it.
+# Deliberately NOT bundled any more:
+#   docs\SETUP.md - markdown renamed .txt, so a non-developer opened it to a
+#     screenful of ## and pipe tables, and half of it is running-from-source
+#     and building-releases instructions that do not apply to someone holding
+#     an exe.
+#   docs\Syrudas-AI-Whitepaper.pdf - an architecture paper for people
+#     evaluating the design, not for people trying to start a chat.
+# Both live in the repository, linked from README.txt. This is not about size
+# (they were 74 KB of a 29 MB archive) - it is about what the folder looks like
+# when the window opens, and how obvious the thing to click is.
 # optional provider connectors (Anthropic, Gemini, ...) ship as drop-in
-# plugins next to the exe - configure with an API key in Settings to activate
+# plugins next to the exe - configure with an API key in Settings to activate.
+# Named explicitly rather than globbed: a glob also shipped example_echo.py,
+# which showed up for real users as a selectable "Echo (example plugin)"
+# provider that replied with their own words back.
+$connectors = @("anthropic.py", "gemini.py")
 New-Item -ItemType Directory (Join-Path $appdir "plugins") | Out-Null
-Copy-Item "plugins\*.py" (Join-Path $appdir "plugins")
+foreach ($c in $connectors) {
+    $src = Join-Path "plugins" $c
+    if (Test-Path $src) {
+        Copy-Item $src (Join-Path $appdir "plugins")
+    } else {
+        throw "Expected connector plugins\$c is missing; release would ship without it."
+    }
+}
 
 New-Item -ItemType Directory "release" -Force | Out-Null
 $zip = "release\SyrudasAI-v$version-win64.zip"

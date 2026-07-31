@@ -1,9 +1,13 @@
-Syrudas AI
-==========
+Syrudas AI {{VERSION}}
+==========================
 
 A self-hosted AI workspace that runs entirely on your own PC.
 Chat with local or API language models, let them use tools in agent
 mode, and connect MCP servers - private, local-first, no telemetry.
+
+Everything below is all you need to get started. The full setup guide,
+the architecture whitepaper and the source live here:
+    https://github.com/LenSyrudas/syrudas
 
 Quick start
 -----------
@@ -43,5 +47,24 @@ Notes
   Claude (Anthropic) and Gemini (Google) connectors are included too -
   pick their provider type and paste your API key to use them.
 - Python provider plugins can be dropped into the "plugins" folder.
+
+Updating
+--------
+Download the newer zip and extract it over your existing SyrudasAI
+folder, choosing "Replace the files in the destination". Your "data"
+folder is not part of the download, so conversations, settings and API
+keys are left untouched. To check what you have now, open Settings -
+the version is shown at the bottom of the panel.
+
+Backing up
+----------
+Close Syrudas, then copy the "data" folder. That is a complete backup:
+conversations, settings, memories, indexed documents and API keys all
+live in data\syrudas.db. Restore by copying it back.
+
+Uninstalling
+------------
+Delete the SyrudasAI folder. Nothing is installed anywhere else - no
+registry entries, no files in AppData, no background services.
 
 License: MIT (see LICENSE.txt)

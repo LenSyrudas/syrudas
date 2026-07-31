@@ -2,16 +2,21 @@
 
 The chat HTTP stream is one-way, so approvals arrive out-of-band via
 POST /api/approvals/{id}; the loop parks on an asyncio.Future until then.
+
+The loop can be cancelled at any await - Stop, a closed tab, a dropped
+connection - so every exit path has to leave a replayable transcript behind:
+an assistant tool_call with no answering tool message is rejected outright by
+both OpenAI and Anthropic, and the rows are already on disk by then.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import uuid
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Iterable, Optional
 
 from . import db
-from .chat import build_history, persist_if_current
+from .chat import INTERRUPTED_TOOL_RESULT, build_history, persist_if_current
 from .config import DEFAULT_WORKSPACE, MAX_AGENT_STEPS
 from .providers.base import ModelProvider
 from .schemas import GenParams, Message, ToolCall
@@ -21,6 +26,16 @@ log = logging.getLogger(__name__)
 
 APPROVAL_TIMEOUT_S = 15 * 60
 _pending_approvals: dict[str, asyncio.Future] = {}
+
+# writes handed off by a cancelled run; referenced so they can't be GC'd mid-flight
+_detached_writes: set[asyncio.Task] = set()
+
+STOP_NOTES = {
+    "step_limit": f"[Agent stopped: reached the {MAX_AGENT_STEPS}-step limit]",
+    "provider_error": "[Agent stopped: the model provider returned an error]",
+    "empty_response": "[Agent stopped: the model returned an empty response]",
+    "cancelled": "[Agent stopped: cancelled before it finished]",
+}
 
 AGENT_SYSTEM_PROMPT = f"""You are Syrudas, an autonomous assistant running on the user's Windows machine.
 You can call tools to get things done: run shell commands, read/write files in your workspace
@@ -47,14 +62,80 @@ def resolve_approval(approval_id: str, approve: bool) -> bool:
     return True
 
 
-async def _await_approval(approval_id: str) -> bool:
+def _register_approval(approval_id: str) -> asyncio.Future:
+    """Claim the id before the client is told about it.
+
+    The approval event and the POST that answers it race: a client that
+    replies instantly would otherwise find no future to resolve, and the loop
+    would sit out the full timeout waiting for a decision already made.
+    """
     future: asyncio.Future = asyncio.get_running_loop().create_future()
     _pending_approvals[approval_id] = future
+    return future
+
+
+async def _await_approval(approval_id: str, future: asyncio.Future) -> bool:
     try:
         return await asyncio.wait_for(future, timeout=APPROVAL_TIMEOUT_S)
     except asyncio.TimeoutError:
-        _pending_approvals.pop(approval_id, None)
         return False
+    finally:
+        # also covers cancellation: a parked run that is stopped must not
+        # leave its id behind for the process to keep forever
+        _pending_approvals.pop(approval_id, None)
+
+
+def _detached_done(task: asyncio.Task) -> None:
+    _detached_writes.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        # silence here would mean a conversation stays broken with no trace;
+        # build_history still repairs it on the next load, but say so
+        log.error("Detached write failed; a tool_call is left unanswered on disk",
+                  exc_info=task.exception())
+
+
+def _persist_detached(coro) -> Optional[asyncio.Task]:
+    """Run a write that has to outlive this generator.
+
+    Once the run is cancelled, awaiting anything here re-raises immediately
+    (and during async-generator finalization it can't suspend at all), so the
+    write goes to a task outside the cancelled scope and is kept referenced
+    until it lands. Scheduling is synchronous on purpose - suspending while
+    a GeneratorExit is in flight would turn teardown into a RuntimeError.
+    """
+    try:
+        task = asyncio.ensure_future(coro)
+    except RuntimeError:  # torn down with no running loop left to schedule on
+        coro.close()
+        log.warning("No running loop for a detached write; "
+                    "build_history will repair the gap on the next load")
+        return None
+    _detached_writes.add(task)
+    task.add_done_callback(_detached_done)
+    return task
+
+
+async def _answer_unrecorded(conv_id: str, gen: int, tool_calls: Iterable[ToolCall]) -> None:
+    for tc in tool_calls:
+        await persist_if_current(conv_id, gen, "tool", INTERRUPTED_TOOL_RESULT,
+                                 tool_call_id=tc.id)
+
+
+def _close_tool_gap(conv_id: str, gen: int, tool_calls: list[ToolCall],
+                    answered: set[str]) -> None:
+    """Make sure the turn's tool_calls are all answered, however we got here."""
+    unanswered = [tc for tc in tool_calls if tc.id not in answered]
+    if not unanswered:
+        return
+    log.info("Answering %d unrecorded tool call(s) in conversation %s",
+             len(unanswered), conv_id[:8])
+    _persist_detached(_answer_unrecorded(conv_id, gen, unanswered))
+
+
+async def drain_detached_writes() -> None:
+    """Wait for writes a cancelled run handed off. For tests and shutdown."""
+    while _detached_writes:
+        await asyncio.gather(*list(_detached_writes), return_exceptions=True)
 
 
 async def collect_tools() -> list[Tool]:
@@ -101,63 +182,94 @@ async def stream_agent_chat(
     conv = {**conv, "system_prompt": prompt}
     history = await build_history(conv)
 
-    for _step in range(MAX_AGENT_STEPS):
-        text_parts: list[str] = []
-        tool_calls: list[ToolCall] = []
-        errored = False
-        usage = None
+    stop_reason = "complete"
+    try:
+        for _step in range(MAX_AGENT_STEPS):
+            text_parts: list[str] = []
+            tool_calls: list[ToolCall] = []
+            errored = False
+            usage = None
 
-        async for ev in provider.chat(conv["model"], history, tools=specs, params=params):
-            if ev.type == "text_delta" and ev.text:
-                text_parts.append(ev.text)
-            elif ev.type == "tool_call" and ev.tool_call:
-                tool_calls.append(ev.tool_call)
-            elif ev.type == "usage":
-                usage = ev
-            elif ev.type == "error":
-                errored = True
-            if ev.type != "done":
-                yield ev.model_dump(exclude_none=True)
+            async for ev in provider.chat(conv["model"], history, tools=specs, params=params):
+                if ev.type == "text_delta" and ev.text:
+                    text_parts.append(ev.text)
+                elif ev.type == "tool_call" and ev.tool_call:
+                    tool_calls.append(ev.tool_call)
+                elif ev.type == "usage":
+                    usage = ev
+                elif ev.type == "error":
+                    errored = True
+                if ev.type != "done":
+                    yield ev.model_dump(exclude_none=True)
 
-        text = "".join(text_parts)
-        if text or tool_calls:
-            await persist_if_current(
-                conv["id"], gen, "assistant", text,
-                tool_calls=[tc.model_dump() for tc in tool_calls] or None,
-                input_tokens=usage.input_tokens if usage else None,
-                output_tokens=usage.output_tokens if usage else None,
-            )
-            history.append(Message(
-                role="assistant", content=text, tool_calls=tool_calls or None))
+            text = "".join(text_parts)
+            if text or tool_calls:
+                await persist_if_current(
+                    conv["id"], gen, "assistant", text,
+                    tool_calls=[tc.model_dump() for tc in tool_calls] or None,
+                    input_tokens=usage.input_tokens if usage else None,
+                    output_tokens=usage.output_tokens if usage else None,
+                )
+                history.append(Message(
+                    role="assistant", content=text, tool_calls=tool_calls or None))
 
-        if errored or not tool_calls:
-            break
+            if errored:
+                stop_reason = "provider_error"
+                break
+            if not tool_calls:
+                if not text:
+                    stop_reason = "empty_response"
+                break
 
-        for tc in tool_calls:
-            result = await _execute_tool_call(tool_map, tc)
-            if result is None:
-                # approval path: emit events through the generator
-                approval_id = uuid.uuid4().hex
-                yield {
-                    "type": "approval_required",
-                    "approval_id": approval_id,
-                    "tool_call": tc.model_dump(),
-                }
-                approved = await _await_approval(approval_id)
-                if approved:
-                    result = await _run_tool(tool_map[tc.name], tc)
-                else:
-                    result = "The user denied this tool call."
-            yield {
-                "type": "tool_result",
-                "tool_call_id": tc.id,
-                "name": tc.name,
-                "content": result,
-            }
-            await persist_if_current(conv["id"], gen, "tool", result, tool_call_id=tc.id)
-            history.append(Message(role="tool", content=result, tool_call_id=tc.id))
-    else:
-        note = f"[Agent stopped: reached the {MAX_AGENT_STEPS}-step limit]"
+            # from here the tool_calls are on disk, so every one of them has to
+            # come back answered even if we're torn down mid-flight
+            answered: set[str] = set()
+            try:
+                for tc in tool_calls:
+                    result = await _execute_tool_call(tool_map, tc)
+                    if result is None:
+                        # approval path: emit events through the generator
+                        approval_id = uuid.uuid4().hex
+                        future = _register_approval(approval_id)
+                        yield {
+                            "type": "approval_required",
+                            "approval_id": approval_id,
+                            "tool_call": tc.model_dump(),
+                        }
+                        if await _await_approval(approval_id, future):
+                            result = await _run_tool(tool_map[tc.name], tc)
+                        else:
+                            result = "The user denied this tool call."
+                    # record before announcing: a dropped connection surfaces
+                    # as a cancellation at the yield below, and a result the
+                    # tool really produced must not be overwritten by the
+                    # interrupted marker on the way out
+                    await persist_if_current(conv["id"], gen, "tool", result,
+                                             tool_call_id=tc.id)
+                    history.append(Message(role="tool", content=result,
+                                           tool_call_id=tc.id))
+                    answered.add(tc.id)
+                    yield {
+                        "type": "tool_result",
+                        "tool_call_id": tc.id,
+                        "name": tc.name,
+                        "content": result,
+                    }
+            finally:
+                _close_tool_gap(conv["id"], gen, tool_calls, answered)
+        else:
+            stop_reason = "step_limit"
+    except (asyncio.CancelledError, GeneratorExit):
+        # the consumer is gone, so nothing more can be yielded - but the
+        # transcript still has to say why this run ended. GeneratorExit is the
+        # same teardown reached by aclose() or collection rather than by
+        # cancellation, and it needs the same note.
+        _persist_detached(persist_if_current(
+            conv["id"], gen, "assistant", STOP_NOTES["cancelled"]))
+        raise
+
+    note = STOP_NOTES.get(stop_reason)
+    if note:
         yield {"type": "text_delta", "text": "\n\n" + note}
         await persist_if_current(conv["id"], gen, "assistant", note)
 
@@ -169,7 +281,14 @@ async def _execute_tool_call(tool_map: dict[str, Tool], tc: ToolCall) -> Optiona
     tool = tool_map.get(tc.name)
     if tool is None:
         return f"Error: unknown tool '{tc.name}'"
-    if await tool.needs_approval(tc.arguments):
+    try:
+        gated = await tool.needs_approval(tc.arguments)
+    except Exception as exc:
+        # a gating check that throws used to abort the whole step, leaving the
+        # turn's tool_calls unanswered; fail closed into a normal tool result
+        log.exception("needs_approval for %s failed", tc.name)
+        return f"Error deciding approval for {tc.name}: {exc}"
+    if gated:
         return None
     return await _run_tool(tool, tc)
 
