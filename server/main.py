@@ -44,10 +44,27 @@ async def health():
 
 if WEB_DIST.is_dir():
     app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
+    WEB_ROOT = WEB_DIST.resolve()
 
     @app.get("/{path:path}")
     async def spa(path: str):
-        file = WEB_DIST / path
-        if path and file.is_file():
-            return FileResponse(file)
-        return FileResponse(WEB_DIST / "index.html")
+        """Serve a bundled asset, falling back to index.html for client routes.
+
+        The resolved path must stay inside the bundle. Without that check there
+        are two ways out, both reachable: on Windows `WEB_DIST / "C:/..."`
+        discards the base entirely when the right-hand side is drive-absolute,
+        and a percent-encoded traversal survives the path normalization the
+        server does before this handler sees it. Either one served any readable
+        file - including data/syrudas.db, which holds provider API keys in
+        plaintext - and served it from this application's own origin, so any
+        HTML reachable on disk would run with same-origin access to /api and
+        /v1. resolve() also collapses symlinks, so a link planted inside the
+        bundle cannot point out of it.
+        """
+        index = WEB_ROOT / "index.html"
+        if not path:
+            return FileResponse(index)
+        target = (WEB_ROOT / path).resolve()
+        if target.is_relative_to(WEB_ROOT) and target.is_file():
+            return FileResponse(target)
+        return FileResponse(index)
