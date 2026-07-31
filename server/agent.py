@@ -16,7 +16,10 @@ import uuid
 from typing import AsyncIterator, Iterable, Optional
 
 from . import db
-from .chat import INTERRUPTED_TOOL_RESULT, build_history, persist_if_current
+from .chat import (
+    INTERRUPTED_TOOL_RESULT, build_history, history_budget, persist_if_current,
+    trim_history,
+)
 from .config import DEFAULT_WORKSPACE, MAX_AGENT_STEPS
 from .providers.base import ModelProvider
 from .schemas import GenParams, Message, ToolCall
@@ -180,11 +183,18 @@ async def stream_agent_chat(
         if block:
             prompt += "\n\n" + block
     conv = {**conv, "system_prompt": prompt}
-    history = await build_history(conv)
+    budget = await history_budget(provider, conv["model"], agent_mode=True)
+    history = await build_history(conv, budget)
 
     stop_reason = "complete"
     try:
         for _step in range(MAX_AGENT_STEPS):
+            # Re-trim every step, not once per turn. A tool-heavy run appends
+            # results as it goes, and left unchecked the request outgrows the
+            # window mid-turn - at which point the backend starts dropping the
+            # oldest messages, which is precisely the system prompt and the
+            # user's original request.
+            history = trim_history(history, budget)
             text_parts: list[str] = []
             tool_calls: list[ToolCall] = []
             errored = False

@@ -13,6 +13,9 @@ from pydantic import BaseModel, Field
 class ModelInfo(BaseModel):
     id: str
     name: Optional[str] = None
+    # usable context window in tokens, when the backend reports one. None means
+    # "not discoverable", not "small" - callers fall back to a fixed budget.
+    context_tokens: Optional[int] = None
 
 
 class ToolSpec(BaseModel):

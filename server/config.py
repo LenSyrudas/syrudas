@@ -26,9 +26,21 @@ PORT = 8040
 
 MAX_AGENT_STEPS = 15
 
-# rough char budget for history sent to the model (~6k tokens); the newest
-# messages always win, the system prompt is always kept
+# Fallback char budget for history, used only when the backend will not say how
+# much context the chosen model has. Deliberately conservative: overshooting
+# makes the backend drop the OLDEST messages, taking the system prompt and the
+# user's request with them, so too little is a worse answer than too much only
+# in the cases where we are guessing anyway.
 MAX_HISTORY_CHARS = 24_000
+
+# When the context window IS known, the budget is derived from it instead.
+# Rough but honest: English averages a little under 4 characters per token, and
+# 3.5 errs toward sending less than the window can hold.
+CHARS_PER_TOKEN = 3.5
+# Held back from the window for the reply itself, and for the tool schemas the
+# agent sends on every request (measured at ~3.7k characters for the builtins).
+RESPONSE_RESERVE_TOKENS = 1_024
+TOOL_SCHEMA_RESERVE_TOKENS = 1_500
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_WORKSPACE.mkdir(parents=True, exist_ok=True)

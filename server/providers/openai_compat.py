@@ -17,6 +17,26 @@ from .base import ConfigField, ModelProvider
 log = logging.getLogger(__name__)
 
 TIMEOUT = httpx.Timeout(connect=10.0, read=600.0, write=30.0, pool=10.0)
+# a context probe must never delay a turn; if the backend is slow, go without
+OLLAMA_PROBE_TIMEOUT = httpx.Timeout(5.0)
+
+# (base_url, model) -> tokens, or 0 for "asked and found nothing". A model's
+# context does not change under a running server, and this is consulted on
+# every turn.
+_CONTEXT_CACHE: dict[tuple[str, str], int] = {}
+
+
+def _context_from_entry(entry: dict) -> Optional[int]:
+    """Pull a context length out of a /v1/models entry if the backend gives one.
+
+    OpenRouter reports it, at the top level and again under top_provider;
+    stock OpenAI and Ollama do not.
+    """
+    for value in (entry.get("context_length"),
+                  (entry.get("top_provider") or {}).get("context_length")):
+        if isinstance(value, int) and value > 0:
+            return value
+    return None
 
 
 def _wire_messages(messages: list[Message]) -> list[dict]:
@@ -76,7 +96,58 @@ class OpenAICompatProvider(ModelProvider):
             resp.raise_for_status()
             data = resp.json()
         models = data.get("data", data if isinstance(data, list) else [])
-        return [ModelInfo(id=m["id"], name=m.get("name")) for m in models if "id" in m]
+        return [
+            ModelInfo(id=m["id"], name=m.get("name"), context_tokens=_context_from_entry(m))
+            for m in models if "id" in m
+        ]
+
+    async def context_tokens(self, model: str) -> Optional[int]:
+        """Ask the backend how much context this model actually has.
+
+        Two sources, because no single one covers the backends this adapter
+        serves. OpenRouter reports `context_length` in its model listing.
+        Ollama's OpenAI-compatible listing does not, but its native /api/show
+        does - and Ollama loads models at their full architectural context by
+        default, so that number is the window in force. Anything else returns
+        None and the caller uses a fixed budget.
+        """
+        cached = _CONTEXT_CACHE.get((self.base_url, model))
+        if cached is not None:
+            return cached or None  # 0 is the cached "asked, nothing to find"
+
+        found: Optional[int] = None
+        try:
+            for info in await self.list_models():
+                if info.id == model and info.context_tokens:
+                    found = info.context_tokens
+                    break
+        except Exception:
+            log.debug("Model listing failed while resolving context for %s", model)
+
+        if found is None:
+            found = await self._ollama_context(model)
+
+        _CONTEXT_CACHE[(self.base_url, model)] = found or 0
+        return found
+
+    async def _ollama_context(self, model: str) -> Optional[int]:
+        """Ollama's native /api/show, reached by dropping the /v1 suffix."""
+        root = self.base_url[: -len("/v1")] if self.base_url.endswith("/v1") else None
+        if not root:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=OLLAMA_PROBE_TIMEOUT) as client:
+                resp = await client.post(f"{root}/api/show", json={"model": model})
+                if resp.status_code != 200:
+                    return None
+                info = resp.json().get("model_info") or {}
+        except (httpx.HTTPError, ValueError):
+            return None
+        # the key is architecture-prefixed: llama.context_length, qwen2.context_length
+        for key, value in info.items():
+            if key.endswith(".context_length") and isinstance(value, int) and value > 0:
+                return value
+        return None
 
     async def embed(self, model: str, texts: list[str]) -> list[list[float]]:
         """OpenAI-compatible /embeddings (works with Ollama, LM Studio, OpenAI...)."""

@@ -48,6 +48,16 @@ class ModelProvider(ABC):
         """Stream a completion as StreamEvents. Must end with a `done` event
         (or `error`). Tool calls are emitted as complete `tool_call` events."""
 
+    async def context_tokens(self, model: str) -> Optional[int]:
+        """Usable context window for a model, in tokens (optional capability).
+
+        Returning None means "I cannot find out", and the caller falls back to a
+        conservative fixed budget. It must never guess: a number too large makes
+        the backend silently drop the oldest messages - the system prompt and the
+        user's original request - which is worse than sending too little.
+        """
+        return None
+
     async def embed(self, model: str, texts: list[str]) -> list[list[float]]:
         """Embed texts into vectors (optional capability; used by local RAG).
 
