@@ -43,17 +43,18 @@ $readme = (Get-Content "packaging\README.txt" -Raw).Replace("{{VERSION}}", "v$ve
     (Join-Path $appdir "README.txt"), $readme,
     (New-Object System.Text.UTF8Encoding $false))
 
-# these were conditional, which meant a release could quietly ship without its
-# documentation; a missing doc is a broken build, not an optional extra
-foreach ($doc in @(
-    @{ Src = "docs\Syrudas-AI-Whitepaper.pdf"; Dest = "Syrudas-AI-Whitepaper.pdf" },
-    @{ Src = "docs\SETUP.md";                  Dest = "SETUP.txt" }
-)) {
-    if (-not (Test-Path $doc.Src)) {
-        throw "$($doc.Src) is missing; release would ship without it. Regenerate it and retry."
-    }
-    Copy-Item $doc.Src (Join-Path $appdir $doc.Dest)
-}
+# The zip carries only what it takes to run: the exe, the page that gets you to
+# double-clicking it, and the licence MIT requires be distributed with it.
+# Deliberately NOT bundled any more:
+#   docs\SETUP.md - markdown renamed .txt, so a non-developer opened it to a
+#     screenful of ## and pipe tables, and half of it is running-from-source
+#     and building-releases instructions that do not apply to someone holding
+#     an exe.
+#   docs\Syrudas-AI-Whitepaper.pdf - an architecture paper for people
+#     evaluating the design, not for people trying to start a chat.
+# Both live in the repository, linked from README.txt. This is not about size
+# (they were 74 KB of a 29 MB archive) - it is about what the folder looks like
+# when the window opens, and how obvious the thing to click is.
 # optional provider connectors (Anthropic, Gemini, ...) ship as drop-in
 # plugins next to the exe - configure with an API key in Settings to activate.
 # Named explicitly rather than globbed: a glob also shipped example_echo.py,

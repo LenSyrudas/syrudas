@@ -5,7 +5,8 @@ A self-hosted AI workspace that runs entirely on your own PC.
 Chat with local or API language models, let them use tools in agent
 mode, and connect MCP servers - private, local-first, no telemetry.
 
-Project page, newer versions and source:
+Everything below is all you need to get started. The full setup guide,
+the architecture whitepaper and the source live here:
     https://github.com/LenSyrudas/syrudas
 
 Quick start
