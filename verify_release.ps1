@@ -142,7 +142,27 @@ c.close()
 }
 finally {
     Stop-App
-    if (Test-Path $work) { Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue }
+    # Keep the unpacked build when something went wrong. This script exists to
+    # catch a broken artifact, and deleting the evidence the moment it finds one
+    # leaves nothing to look at - no log, no exe, nothing to run by hand.
+    # Reported here rather than after the block because the layout check throws,
+    # which would skip anything below; a clean run still tidies up.
+    if ($failures.Count -eq 0) {
+        if (Test-Path $work) { Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue }
+    } else {
+        Write-Host ""
+        Write-Host "The unpacked build was kept for inspection:" -ForegroundColor Yellow
+        Write-Host "  $app"
+        $log = Join-Path $app "data\syrudas.log"
+        if (Test-Path $log) {
+            Write-Host "  $log"
+            Write-Host "  --- last 20 log lines ---"
+            Get-Content $log -Tail 20 | ForEach-Object { Write-Host "    $_" }
+        } else {
+            Write-Host "  (no data\syrudas.log - the app may not have started at all)"
+        }
+        Write-Host "  delete when done:  Remove-Item -Recurse -Force '$work'"
+    }
 }
 
 Write-Host ""

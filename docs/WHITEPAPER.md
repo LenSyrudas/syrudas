@@ -722,8 +722,8 @@ promise, and the posture is layered.
   because these assets are served from the application's own origin: a local file
   served through this path would not merely be readable, it would execute — any
   HTML on disk would gain same-origin access to `/api` and `/v1`. That
-  containment check was added after version 0.7.4; earlier builds resolved the
-  path without it, and anyone still running one should update.
+  containment check arrived in version 1.0. Builds up to and including 0.7.4
+  resolved the path without it, so anyone still running one should update.
 - **Data at rest.** Conversations, settings, memories, indexed chunks,
   documents, and provider API keys live in one local SQLite file. Keys are
   stored in plaintext — an OS-keychain integration is future work — but are

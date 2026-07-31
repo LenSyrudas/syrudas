@@ -63,16 +63,16 @@ run `.\verify_release.ps1` yourself before shipping.
 ### 5. Tag, from master
 
 ```powershell
-git tag -a v0.7.4 -m "v0.7.4: short description"
-git push origin v0.7.4
-git merge-base --is-ancestor v0.7.4 origin/master   # confirm it is on master
+git tag -a v1.0.0 -m "v1.0.0: short description"
+git push origin v1.0.0
+git merge-base --is-ancestor v1.0.0 origin/master   # confirm it is on master
 ```
 
 ### 6. Publish
 
 ```powershell
-gh release create v0.7.4 "release\SyrudasAI-v0.7.4-win64.zip" `
-  --title "Syrudas AI v0.7.4" --notes-file notes.md
+gh release create v1.0.0 "release\SyrudasAI-v1.0.0-win64.zip" `
+  --title "Syrudas AI v1.0.0" --notes-file notes.md
 ```
 
 Write the notes for someone who has never seen the project. Describe what
