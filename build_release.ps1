@@ -40,9 +40,20 @@ if (Test-Path "docs\SETUP.md") {
     Copy-Item "docs\SETUP.md" (Join-Path $appdir "SETUP.txt")
 }
 # optional provider connectors (Anthropic, Gemini, ...) ship as drop-in
-# plugins next to the exe - configure with an API key in Settings to activate
+# plugins next to the exe - configure with an API key in Settings to activate.
+# Named explicitly rather than globbed: a glob also shipped example_echo.py,
+# which showed up for real users as a selectable "Echo (example plugin)"
+# provider that replied with their own words back.
+$connectors = @("anthropic.py", "gemini.py")
 New-Item -ItemType Directory (Join-Path $appdir "plugins") | Out-Null
-Copy-Item "plugins\*.py" (Join-Path $appdir "plugins")
+foreach ($c in $connectors) {
+    $src = Join-Path "plugins" $c
+    if (Test-Path $src) {
+        Copy-Item $src (Join-Path $appdir "plugins")
+    } else {
+        throw "Expected connector plugins\$c is missing; release would ship without it."
+    }
+}
 
 New-Item -ItemType Directory "release" -Force | Out-Null
 $zip = "release\SyrudasAI-v$version-win64.zip"

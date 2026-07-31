@@ -1,32 +1,35 @@
-# React + TypeScript + Vite
+# Syrudas AI — frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + TypeScript + Vite. Built into `web/dist/`, which the Python server mounts
+and serves; there is no separate frontend deployment.
 
-Currently, two official plugins are available:
+Most of the time you do not need this directory directly — `.\setup.ps1` installs
+and builds it, and `.\run_tests.ps1` runs its checks alongside the backend suites.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Layout
 
-## React Compiler
+| Path | What lives there |
+|------|------------------|
+| `src/App.tsx` | Shell: view switching, conversation list, provider/model reconciliation |
+| `src/api.ts` | Every server call, plus the NDJSON stream reader |
+| `src/chatItems.ts` | Pure reducer folding stream events into a thread, and the rebuild from stored messages |
+| `src/components/` | One file per view (`ChatView`, `SettingsView`, `EditorView`, `ArenaView`, `CookbookView`) plus shared pieces |
+| `src/theme.ts` | Appearance and colour-vision axes, applied as attributes on the document root |
+| `src/test/` | Vitest setup |
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+`chatItems.ts` sits outside the components on purpose: it is stateful transform
+logic whose bugs stay invisible until a specific event sequence occurs, so it is
+kept pure and tested directly rather than through the UI.
 
-## Expanding the Oxlint configuration
+## Working on it
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```
+npm run dev     # vite dev server, proxies /api to http://127.0.0.1:8040
+npm run build   # tsc -b, then vite build into dist/
+npm test        # vitest
+npm run lint    # oxlint
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+`npm run dev` expects the Python server to already be running (`.\run.ps1` from
+the repository root): the proxy forwards `/api`, and the dev server owns
+everything else.

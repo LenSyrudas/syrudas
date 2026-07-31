@@ -244,32 +244,16 @@ ones included), and the conversation and document lists are keyboard-focusable
 **Picks up where you left off:** the view you were in and the conversation you
 had open are remembered, so relaunching Syrudas returns you to the same place.
 
-## 13. VS Code integration
+## 13. Using your models from other tools
 
-Two independent connectors (Syrudas must be running for both):
+Syrudas exposes an OpenAI-compatible API at `http://127.0.0.1:8040/v1`, so any
+tool that speaks that dialect can use every backend you have configured here —
+one place to manage keys and endpoints, rather than one per tool. Syrudas must
+be running.
 
-### The Syrudas extension
-
-Install `vscode-extension/syrudas-ai-<version>.vsix`:
-
-```powershell
-code --install-extension syrudas-ai-0.2.0.vsix          # regular VS Code
-code-insiders --install-extension syrudas-ai-0.2.0.vsix # Insiders
-```
-
-Then:
-- **Ctrl+Shift+P → "Syrudas: Open Panel"** — the workspace in an editor panel.
-- Select code → right-click → **"Syrudas: Ask About Selection"** — opens a
-  chat prefilled with the selection (file, line, syntax fence).
-- Setting `syrudas.url` changes the server address (default
-  `http://127.0.0.1:8040`).
-
-### The /v1 model hub (Continue and friends)
-
-Syrudas exposes an OpenAI-compatible API at `http://127.0.0.1:8040/v1`.
 Every model from every provider you configured is available as
-`<provider>/<model>` (see `GET /v1/models`). For the Continue extension, add
-to `~/.continue/config.yaml`:
+`<provider>/<model>` (see `GET /v1/models`). For the Continue extension in
+VS Code, add to `~/.continue/config.yaml`:
 
 ```yaml
 models:
@@ -323,30 +307,23 @@ npm test          # once
 npm run test:watch  # re-run on change
 ```
 
-The individual offline suites (no network, no model, no GPU needed — they drive
-the real code against fakes):
+The offline suites need no network, no model and no GPU — they drive the real
+code against fakes. `run_tests.ps1` discovers them by globbing `scripts\test_*.py`,
+so a list here would only rot; to see what exists, ask the directory:
 
 ```powershell
-.venv\Scripts\python.exe scripts\test_agent_safety.py   # tool gating + sandbox
-.venv\Scripts\python.exe scripts\test_host_guard.py     # localhost Host-guard
-.venv\Scripts\python.exe scripts\test_agent_memory.py   # memory
-.venv\Scripts\python.exe scripts\test_knowledge.py      # retrieval / RAG
-.venv\Scripts\python.exe scripts\test_research.py       # deep research pipeline
-.venv\Scripts\python.exe scripts\test_documents.py      # writing editor
-.venv\Scripts\python.exe scripts\test_arena.py          # blind arena
-.venv\Scripts\python.exe scripts\test_cookbook.py       # cookbook + fit ratings
-.venv\Scripts\python.exe scripts\test_hardware.py       # hardware detection
-.venv\Scripts\python.exe scripts\test_connectors.py     # Anthropic / Gemini
+Get-ChildItem scripts\test_*.py | Select-Object Name
 ```
 
-Live smoke tests (these need Ollama running with `llama3.1:8b`):
+Any one of them runs on its own, and each prints what it covers as it goes:
 
 ```powershell
-.venv\Scripts\python.exe scripts\smoke_provider.py   # provider adapter
-.venv\Scripts\python.exe scripts\smoke_chat_api.py   # chat API end-to-end
-.venv\Scripts\python.exe scripts\smoke_agent.py      # agent loop + tools
-.venv\Scripts\python.exe scripts\smoke_mcp.py        # MCP through the agent
+.venv\Scripts\python.exe scripts\test_agent_safety.py
 ```
+
+The live smoke tests are discovered the same way (`scripts\smoke_*.py`) and are
+skipped unless you pass `-Smoke`, because they need a model backend running.
+They talk to a live Ollama and expect a tool-capable model to be installed.
 
 Layout reference is in [README.md](../README.md); design rationale in
 [WHITEPAPER.md](WHITEPAPER.md).

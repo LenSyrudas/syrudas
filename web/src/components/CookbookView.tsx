@@ -10,7 +10,9 @@ const FIT_LABEL: Record<CatalogModel['fit'], { text: string; cls: string }> = {
   unknown: { text: 'Unknown', cls: 'fit-unknown' },
 }
 
-const FILTERS = ['all', 'chat', 'tools', 'code', 'reasoning', 'vision', 'embedding']
+// no 'vision' filter: the catalog carries no vision models, because message
+// content is text-only end to end and image attachments are rejected
+const FILTERS = ['all', 'chat', 'tools', 'code', 'reasoning', 'embedding']
 
 function gb(mb: number | null): string {
   return mb ? `${(mb / 1024).toFixed(mb / 1024 >= 10 ? 0 : 1)} GB` : '—'
