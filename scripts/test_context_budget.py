@@ -200,16 +200,22 @@ def test_openrouter_context_is_read():
 
 
 async def main():
-    test_openrouter_context_is_read()
-    await test_budget_scales_with_the_window()
-    await test_agent_mode_reserves_room_for_tool_schemas()
-    await test_falls_back_when_the_window_is_unknown()
-    await test_a_probe_failure_cannot_fail_a_turn()
-    await test_history_is_retrimmed_every_step()
-    await test_the_original_request_survives_a_bigger_window()
-    await db.close_db()
-    print("\nALL CONTEXT BUDGET TESTS PASSED")
+    try:
+        test_openrouter_context_is_read()
+        await test_budget_scales_with_the_window()
+        await test_agent_mode_reserves_room_for_tool_schemas()
+        await test_falls_back_when_the_window_is_unknown()
+        await test_a_probe_failure_cannot_fail_a_turn()
+        await test_history_is_retrimmed_every_step()
+        await test_the_original_request_survives_a_bigger_window()
+        print("\nALL CONTEXT BUDGET TESTS PASSED")
 
+    finally:
+        # aiosqlite's connection thread is not a daemon, so a failing
+        # assertion that skipped the close left the interpreter hanging at
+        # exit: the suite never reported its failure, it just stopped, and
+        # in CI that is a job running to the time limit instead of a red X.
+        await db.close_db()
 
 if __name__ == "__main__":
     asyncio.run(main())

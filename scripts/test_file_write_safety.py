@@ -157,21 +157,23 @@ async def test_a_different_path_is_unaffected():
 
 
 async def main():
-    await test_truncated_readback_is_refused()
-    await test_readback_with_the_marker_stripped_is_still_refused()
-    await test_the_marker_guard_stands_on_its_own()
-    await test_missing_content_key_is_refused()
-    await test_explicit_empty_string_is_allowed()
-    await test_ordinary_writes_still_work_and_report_the_change()
-    await test_a_full_read_clears_the_record()
-    await test_a_different_path_is_unaffected()
-    # allowed_roots() reads the settings table, which opens an aiosqlite
-    # connection on a NON-daemon thread; without this the script prints every
-    # result and then hangs at exit forever, which in CI means a job that runs
-    # until the twenty-minute limit kills it
-    await db.close_db()
-    print("\nALL FILE WRITE SAFETY TESTS PASSED")
+    try:
+        await test_truncated_readback_is_refused()
+        await test_readback_with_the_marker_stripped_is_still_refused()
+        await test_the_marker_guard_stands_on_its_own()
+        await test_missing_content_key_is_refused()
+        await test_explicit_empty_string_is_allowed()
+        await test_ordinary_writes_still_work_and_report_the_change()
+        await test_a_full_read_clears_the_record()
+        await test_a_different_path_is_unaffected()
+        print("\nALL FILE WRITE SAFETY TESTS PASSED")
 
+    finally:
+        # aiosqlite's connection thread is not a daemon, so a failing
+        # assertion that skipped the close left the interpreter hanging at
+        # exit: the suite never reported its failure, it just stopped, and
+        # in CI that is a job running to the time limit instead of a red X.
+        await db.close_db()
 
 if __name__ == "__main__":
     asyncio.run(main())

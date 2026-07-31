@@ -310,19 +310,25 @@ async def test_step_limit():
 
 
 async def main():
-    await test_normal_mode_has_no_tools()
-    await test_agent_mode_tool_offering()
-    await test_shell_denied_does_not_run()
-    await test_shell_approved_runs()
-    await test_file_sandbox()
-    await test_file_write_gating()
-    await test_web_fetch_refuses_private_hosts()
-    await test_unknown_tool_is_error()
-    await test_approvals_are_single_shot()
-    await test_step_limit()
-    await db.close_db()
-    print("\nALL AGENT SAFETY TESTS PASSED")
+    try:
+        await test_normal_mode_has_no_tools()
+        await test_agent_mode_tool_offering()
+        await test_shell_denied_does_not_run()
+        await test_shell_approved_runs()
+        await test_file_sandbox()
+        await test_file_write_gating()
+        await test_web_fetch_refuses_private_hosts()
+        await test_unknown_tool_is_error()
+        await test_approvals_are_single_shot()
+        await test_step_limit()
+        print("\nALL AGENT SAFETY TESTS PASSED")
 
+    finally:
+        # aiosqlite's connection thread is not a daemon, so a failing
+        # assertion that skipped the close left the interpreter hanging at
+        # exit: the suite never reported its failure, it just stopped, and
+        # in CI that is a job running to the time limit instead of a red X.
+        await db.close_db()
 
 if __name__ == "__main__":
     asyncio.run(main())

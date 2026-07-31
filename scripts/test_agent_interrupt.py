@@ -447,21 +447,27 @@ async def test_failed_detached_write_is_logged():
 
 
 async def main():
-    await test_cancel_mid_tool_call()
-    await test_cancel_mid_tool_call_replays()
-    await test_cancel_while_awaiting_approval()
-    await test_approval_id_is_claimable_when_announced()
-    await test_raising_gate_becomes_a_tool_result()
-    await test_completed_result_survives_disconnect()
-    await test_teardown_at_a_yield_records_reason()
-    await test_failed_detached_write_is_logged()
-    await test_cancel_between_tool_calls_in_one_step()
-    await test_repair_does_not_duplicate_a_detached_write()
-    await test_build_history_repairs_old_damage()
-    await test_repair_leaves_healthy_history_alone()
-    await db.close_db()
-    print("\nALL AGENT INTERRUPT TESTS PASSED")
+    try:
+        await test_cancel_mid_tool_call()
+        await test_cancel_mid_tool_call_replays()
+        await test_cancel_while_awaiting_approval()
+        await test_approval_id_is_claimable_when_announced()
+        await test_raising_gate_becomes_a_tool_result()
+        await test_completed_result_survives_disconnect()
+        await test_teardown_at_a_yield_records_reason()
+        await test_failed_detached_write_is_logged()
+        await test_cancel_between_tool_calls_in_one_step()
+        await test_repair_does_not_duplicate_a_detached_write()
+        await test_build_history_repairs_old_damage()
+        await test_repair_leaves_healthy_history_alone()
+        print("\nALL AGENT INTERRUPT TESTS PASSED")
 
+    finally:
+        # aiosqlite's connection thread is not a daemon, so a failing
+        # assertion that skipped the close left the interpreter hanging at
+        # exit: the suite never reported its failure, it just stopped, and
+        # in CI that is a job running to the time limit instead of a red X.
+        await db.close_db()
 
 if __name__ == "__main__":
     asyncio.run(main())
