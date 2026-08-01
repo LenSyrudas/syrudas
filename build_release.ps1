@@ -20,7 +20,16 @@ $version = $match.Matches[0].Groups[1].Value
 Write-Host "Packaging Syrudas AI v$version"
 
 & .\build_exe.ps1
-if (-not (Test-Path "SyrudasAI.exe")) { throw "build_exe.ps1 did not produce SyrudasAI.exe" }
+# --onedir output: the exe plus the _internal runtime folder it cannot start
+# without. Both are checked, because shipping the exe alone would produce an
+# archive that unzips cleanly and dies on launch.
+$built = "dist\SyrudasAI"
+if (-not (Test-Path (Join-Path $built "SyrudasAI.exe"))) {
+    throw "build_exe.ps1 did not produce $built\SyrudasAI.exe"
+}
+if (-not (Test-Path (Join-Path $built "_internal"))) {
+    throw "$built\_internal is missing - the packaged app would not start"
+}
 
 $stage = Join-Path $env:TEMP "syrudas-release-stage"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
@@ -30,7 +39,8 @@ if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 $appdir = Join-Path $stage "SyrudasAI"
 New-Item -ItemType Directory $appdir | Out-Null
 
-Copy-Item "SyrudasAI.exe" $appdir
+# the whole build folder: SyrudasAI.exe and the _internal runtime beside it
+Copy-Item (Join-Path $built "*") $appdir -Recurse
 Copy-Item "LICENSE" (Join-Path $appdir "LICENSE.txt")
 
 # stamp the version into the end-user readme rather than hand-maintaining it:
