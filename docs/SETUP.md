@@ -114,7 +114,8 @@ The model can then:
   addresses are always refused),
 - remember durable facts across conversations and search them,
 - search your indexed documents (see [Knowledge](#7-knowledge-local-rag)),
-- use any tools from connected MCP servers.
+- use any tools from connected MCP servers — **these ask first too**, because a
+  server can expose anything and Syrudas can't tell what from its tool list.
 
 **File access:** by default the file tools only see the agent workspace
 (`data\workspace`). To let the agent work on real folders, go to
@@ -142,6 +143,13 @@ Enabled servers connect when an agent run starts; their tools appear to the
 model namespaced by server name (e.g. `filesystem_list_directory`). The
 first `npx` run downloads the package, so the first agent start after adding
 one can take a minute.
+
+**Every MCP tool call asks for your approval**, the same as a shell command. A
+server runs with your privileges and can expose anything — a file write, a shell
+wrapper, an API client — and nothing in the tool list tells Syrudas which, so
+registering a server adds capability without quietly widening what the model may
+do unattended. A server tool whose name collides with a builtin is skipped rather
+than allowed to replace it; rename the server if you need it.
 
 ## 5½. Chat features worth knowing
 

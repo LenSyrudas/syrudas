@@ -37,7 +37,8 @@ Notes
 - Attach files to any message with the paperclip button or by dragging
   them onto the chat: code, text, CSV, JSON, logs, and PDFs.
 - Agent mode needs a model that supports tool calling, e.g.
-  llama3.1:8b. Shell commands always ask for your approval first.
+  llama3.1:8b. Shell commands, web fetches and any tools from an MCP
+  server always ask for your approval first, every time.
   By default its file tools only see the workspace folder; grant more
   folders under Settings -> Agent file access.
 - Your conversations, settings and API keys live in the "data" folder
