@@ -121,9 +121,9 @@ Five concrete goals follow from this stance:
    dangerous parts.
 4. **A hub, not a silo.** The workspace speaks the OpenAI wire dialect in both
    directions, so external tools can use its configured models as a service.
-5. **Shippable to a non-developer.** A single portable executable that unzips
-   and double-clicks, with zero-configuration onboarding when a local model
-   server is already present.
+5. **Shippable to a non-developer.** A self-contained portable folder that
+   unzips and double-clicks, with zero-configuration onboarding when a local
+   model server is already present.
 
 The rest of this paper traces how a single abstraction, enforced everywhere,
 lets those goals coexist inside a codebase one person can hold in their head.
@@ -134,8 +134,8 @@ lets those goals coexist inside a codebase one person can hold in their head.
 program that runs quietly in the background on your PC and does the actual work:
 talking to the AI, saving your conversations, running anything the AI is allowed
 to run. The other is the window you look at. They talk to each other over your
-own machine and nowhere else. For everyday use both halves are wrapped into a
-single file you double-click, so you never see the seam.
+own machine and nowhere else. For everyday use both halves are wrapped into one
+folder with one thing in it to double-click, so you never see the seam.
 
 Syrudas is a two-tier application with a deliberately small surface between the
 tiers. The **backend** is Python 3.13 on FastAPI: it serves a REST and
@@ -166,7 +166,7 @@ desktop restarts by the WebView2 storage path), so the app reopens exactly
 where the user left off.
 
 ```
-┌────────────────────────────── SyrudasAI.exe ─────────────────────────────┐
+┌───────────── SyrudasAI\  (SyrudasAI.exe + _internal\ runtime) ───────────┐
 │  pywebview window (WebView2)                                             │
 │  └── React SPA  ── NDJSON/HTTP ──►  FastAPI (127.0.0.1:8040)             │
 │      chat · agent · research ·       ├── Host-guard middleware           │
@@ -1000,11 +1000,15 @@ load-bearing behaviors have been attacked on purpose.
 
 ## 18. Packaging and distribution
 
-**In plain terms.** How the program reaches you. It is one file you download and
-double-click, with everything it needs sealed inside it. Anything it saves —
-your conversations, your settings — goes in a folder next to that file. Nothing
-is installed into Windows itself, so moving it somewhere else is dragging a
-folder, and removing it is deleting one.
+**In plain terms.** How the program reaches you. It is one folder you download,
+with one thing inside it to double-click and a second folder — `_internal` —
+holding the machinery that makes it run. The two have to stay together;
+everything else in there is yours. Anything the program saves — your
+conversations, your settings — goes in that same folder. Nothing is installed
+into Windows itself, so moving it somewhere else is dragging a folder, and
+removing it is deleting one. This section also explains why it is a folder
+rather than the single file it used to be, which turns out to be a story about
+antivirus software rather than about packaging.
 
 The release artifact is a portable zip holding four things: the PyInstaller
 application (windowed, over WebView2) as an executable plus the `_internal`
