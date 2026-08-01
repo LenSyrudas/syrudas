@@ -36,6 +36,8 @@ export default function EditorView({ providerId, model }: Props) {
   const [customOpen, setCustomOpen] = useState(false)
   const [custom, setCustom] = useState('')
   const [suggestion, setSuggestion] = useState<string | null>(null)
+  // the document's text before the last accepted AI edit, so it can be put back
+  const [undo, setUndo] = useState<{ docId: string | null; content: string } | null>(null)
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState('')
   // the span the current suggestion will replace, captured when the run starts
@@ -138,8 +140,16 @@ export default function EditorView({ providerId, model }: Props) {
   async function runAction(instruction: string, mode: boolean | 'auto') {
     if (!canEdit || streaming) return
     const el = textRef.current
-    const start = el ? el.selectionStart : 0 // read the LIVE selection, not lagged state
-    const end = el ? el.selectionEnd : 0
+    // Only trust the caret while the textarea actually has focus. A blurred
+    // textarea keeps reporting the selection it had when focus left (measured:
+    // select 6-11, click away, it still says 6-11), so clicking into the
+    // document list and pressing Continue used to splice the model's output at
+    // a position the user could no longer see selected - autosaved 700ms later,
+    // with the browser's own undo stack already bypassed. Unfocused means "no
+    // position given", which for an insertion means the end.
+    const focused = el != null && document.activeElement === el
+    const start = focused ? el.selectionStart : content.length
+    const end = focused ? el.selectionEnd : content.length
     const needsSelection = mode === 'auto' ? end > start : mode
     const selection = content.slice(start, end)
     if (needsSelection && !selection.trim()) {
@@ -190,9 +200,18 @@ export default function EditorView({ providerId, model }: Props) {
     // a revision (start !== end) replaces a span, so strip stray leading/
     // trailing whitespace the model added; an insertion keeps it as-is
     if (start !== end) replacement = replacement.trim()
+    // splicing through patchDoc bypasses the textarea, so the browser's own
+    // undo stack no longer covers it - keep the previous text ourselves
+    setUndo({ docId: activeId, content })
     patchDoc({ content: content.slice(0, start) + replacement + content.slice(end) })
     setSuggestion(null)
     suggestionDoc.current = null
+  }
+
+  function undoAiEdit() {
+    if (!undo || undo.docId !== activeId) return
+    patchDoc({ content: undo.content })
+    setUndo(null)
   }
 
   return (
@@ -336,6 +355,14 @@ export default function EditorView({ providerId, model }: Props) {
                 )}
               </div>
               <pre className="doc-suggestion-body">{suggestion || (streaming ? '…' : '(empty)')}</pre>
+            </div>
+          )}
+          {undo && undo.docId === activeId && suggestion === null && (
+            <div className="doc-undo">
+              <span>An AI edit was applied to this document.</span>
+              <button className="btn btn-compact" onClick={undoAiEdit}>
+                Undo AI edit
+              </button>
             </div>
           )}
         </div>
