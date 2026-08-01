@@ -13,7 +13,37 @@ from .routes import api_router
 from .routes.openai_api import router as openai_router
 from .security import LocalhostOnlyMiddleware
 
-logging.basicConfig(level=logging.INFO)
+def _setup_logging() -> None:
+    """One log artifact, the same from source and from the packaged exe.
+
+    basicConfig had no timestamps, so a run line could not be placed in time,
+    and the file only existed in the windowed build - where stdout happens to
+    be redirected - despite the setup guide promising data\\syrudas.log either
+    way. Rotating, because an agent that runs tools writes a line per step.
+    """
+    root = logging.getLogger()
+    if root.handlers:
+        return
+    root.setLevel(logging.INFO)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s",
+                            datefmt="%Y-%m-%d %H:%M:%S")
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+    root.addHandler(console)
+    try:
+        from logging.handlers import RotatingFileHandler
+        from .config import DATA_DIR
+        f = RotatingFileHandler(DATA_DIR / "syrudas.log", maxBytes=2_000_000,
+                                backupCount=3, encoding="utf-8")
+        f.setFormatter(fmt)
+        root.addHandler(f)
+    except OSError:
+        # an unwritable data folder is reported properly by ensure_dirs;
+        # losing the file log must not stop the app starting
+        root.warning("Could not open the log file; logging to the console only")
+
+
+_setup_logging()
 
 
 @asynccontextmanager

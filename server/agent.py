@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 import uuid
 from typing import AsyncIterator, Iterable, Optional
 
@@ -221,6 +222,17 @@ async def stream_agent_chat(
     budget = await history_budget(provider, conv["model"], agent_mode=True)
     history = await build_history(conv, budget)
 
+    # A run leaves a transcript but had no record: no identity, no timings, no
+    # way to answer "why did that take two minutes" afterwards. One id ties the
+    # step lines together; the terminal line carries the reason it ended.
+    run_id = uuid.uuid4().hex[:12]
+    run_started = time.perf_counter()
+    steps_done = 0
+    tools_run = 0
+    total_tokens = 0
+    log.info("run=%s start conv=%s model=%s tools=%d agent=1",
+             run_id, conv["id"][:8], conv["model"], len(specs))
+
     stop_reason = "complete"
     repeats: dict[str, int] = {}
     empty_retries = 0
@@ -237,6 +249,7 @@ async def stream_agent_chat(
             errored = False
             usage = None
 
+            model_started = time.perf_counter()
             async for ev in provider.chat(conv["model"], history, tools=specs, params=params):
                 if ev.type == "text_delta" and ev.text:
                     text_parts.append(ev.text)
@@ -248,6 +261,15 @@ async def stream_agent_chat(
                     errored = True
                 if ev.type != "done":
                     yield ev.model_dump(exclude_none=True)
+
+            model_ms = (time.perf_counter() - model_started) * 1000
+            steps_done += 1
+            if usage:
+                total_tokens += (usage.input_tokens or 0) + (usage.output_tokens or 0)
+            log.info("run=%s step=%d model_ms=%.0f text=%d calls=%d tokens=%s",
+                     run_id, steps_done, model_ms, len("".join(text_parts)),
+                     len(tool_calls),
+                     (usage.input_tokens or 0) + (usage.output_tokens or 0) if usage else "-")
 
             text = "".join(text_parts)
             if text or tool_calls:
@@ -293,7 +315,9 @@ async def stream_agent_chat(
                             "times with these exact arguments and kept failing. Change the "
                             "arguments or try a different approach.")
                     else:
+                        tool_started = time.perf_counter()
                         result = await _execute_tool_call(tool_map, tc)
+                        gated = result is None
                     if result is None:
                         # approval path: emit events through the generator
                         approval_id = uuid.uuid4().hex
@@ -307,6 +331,11 @@ async def stream_agent_chat(
                             result = await _run_tool(tool_map[tc.name], tc)
                         else:
                             result = DENIED_TOOL_RESULT
+                    tools_run += 1
+                    log.info("run=%s step=%d tool=%s ms=%.0f gated=%d error=%d",
+                             run_id, steps_done, tc.name,
+                             (time.perf_counter() - tool_started) * 1000,
+                             int(gated), int(tool_result_failed(result)))
                     # record before announcing: a dropped connection surfaces
                     # as a cancellation at the yield below, and a result the
                     # tool really produced must not be overwritten by the
@@ -334,6 +363,9 @@ async def stream_agent_chat(
         else:
             stop_reason = "step_limit"
     except (asyncio.CancelledError, GeneratorExit):
+        log.info("run=%s end reason=cancelled steps=%d tools=%d total_ms=%.0f",
+                 run_id, steps_done, tools_run,
+                 (time.perf_counter() - run_started) * 1000)
         # the consumer is gone, so nothing more can be yielded - but the
         # transcript still has to say why this run ended. GeneratorExit is the
         # same teardown reached by aclose() or collection rather than by
@@ -341,6 +373,10 @@ async def stream_agent_chat(
         _persist_detached(persist_if_current(
             conv["id"], gen, "assistant", STOP_NOTES["cancelled"]))
         raise
+
+    log.info("run=%s end reason=%s steps=%d tools=%d tokens=%d total_ms=%.0f",
+             run_id, stop_reason, steps_done, tools_run, total_tokens,
+             (time.perf_counter() - run_started) * 1000)
 
     note = STOP_NOTES.get(stop_reason)
     if note:
