@@ -4,6 +4,8 @@ import {
   fileBlock,
   itemsFromMessages,
   parseUserContent,
+  statusForResult,
+  stripFence,
   usageLabel,
 } from './chatItems'
 import type { ChatItem } from './chatItems'
@@ -309,5 +311,87 @@ describe('usageLabel', () => {
 
   it('is empty when nothing was reported, so the caller can hide it', () => {
     expect(usageLabel({})).toBe('')
+  })
+})
+
+describe('tool status', () => {
+  const fold = (evs: StreamEvent[]) => evs.reduce(applyEvent, [] as ChatItem[])
+  const call = { id: 't1', name: 'shell', arguments: {} }
+
+  it('shows a failed call as an error, not a tick', () => {
+    const items = fold([
+      { type: 'tool_call', tool_call: call },
+      { type: 'tool_result', tool_call_id: 't1', name: 'shell',
+        content: 'Error: not a folder', is_error: true },
+    ])
+    expect((items[0] as { status: string }).status).toBe('error')
+  })
+
+  it('shows a denied call as denied even though the server also flags it', () => {
+    const items = fold([
+      { type: 'tool_call', tool_call: call },
+      { type: 'tool_result', tool_call_id: 't1', name: 'shell',
+        content: 'The user denied this tool call.', is_error: false, denied: true },
+    ])
+    expect((items[0] as { status: string }).status).toBe('denied')
+  })
+
+  it('still shows a successful call as done', () => {
+    const items = fold([
+      { type: 'tool_call', tool_call: call },
+      { type: 'tool_result', tool_call_id: 't1', name: 'shell', content: 'exit code: 0' },
+    ])
+    expect((items[0] as { status: string }).status).toBe('done')
+  })
+
+  it('agrees with the reloaded row for the same result', () => {
+    // the whole point: a live event and storage must not disagree
+    for (const content of [
+      'Error: not a folder',
+      'The user denied this tool call.',
+      '[interrupted: no result was recorded for this tool call]',
+      'exit code: 0',
+    ]) {
+      const live = fold([
+        { type: 'tool_call', tool_call: call },
+        { type: 'tool_result', tool_call_id: 't1', name: 'shell', content },
+      ])
+      const reloaded = itemsFromMessages(
+        conv([
+          msg({ role: 'assistant', content: '', tool_calls: [call] }),
+          msg({ role: 'tool', content, tool_call_id: 't1' }),
+        ]),
+      )
+      const want = (live[0] as { status: string }).status
+      expect((reloaded[0] as { status: string }).status).toBe(want)
+      expect(statusForResult(content)).toBe(want)
+    }
+  })
+
+  it('leaves a call with no result row as running, not done', () => {
+    const reloaded = itemsFromMessages(
+      conv([msg({ role: 'assistant', content: '', tool_calls: [call] })]),
+    )
+    expect((reloaded[0] as { status: string }).status).toBe('running')
+  })
+})
+
+describe('stripFence', () => {
+  it('removes fence markers the model imitated in its own reply', () => {
+    expect(stripFence('Here you go <<<TOOL_OUTPUT file_list BEGIN>>> ok'))
+      .toBe('Here you go  ok')
+    expect(stripFence('done <<<TOOL_OUTPUT END>>>')).toBe('done ')
+  })
+
+  it('catches a marker split across two streamed chunks', () => {
+    const items = run([
+      { type: 'text_delta', text: 'a <<<TOOL_OUT' },
+      { type: 'text_delta', text: 'PUT END>>> b' },
+    ])
+    expect(items[0]).toMatchObject({ kind: 'assistant', content: 'a  b' })
+  })
+
+  it('leaves ordinary text alone', () => {
+    expect(stripFence('a < b and c <<< d')).toBe('a < b and c <<< d')
   })
 })

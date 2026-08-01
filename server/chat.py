@@ -36,6 +36,22 @@ TOOL_FENCE_END = "<<<TOOL_OUTPUT END>>>"
 _TOOL_FENCE_RE = re.compile(r"<<<\s*TOOL_OUTPUT\b[^>]*>>>", re.IGNORECASE)
 
 
+DENIED_TOOL_RESULT = "The user denied this tool call."
+
+
+def tool_result_failed(content: str) -> bool:
+    """Whether a tool result represents a failure rather than an answer.
+
+    Tools report failure by returning a string starting with "Error:" - there is
+    no separate channel - so classification is by convention. Kept here as one
+    function because the UI needs the same answer for a live event and for a
+    reloaded row, and the two disagreeing is what made a denied shell command
+    render as a green tick.
+    """
+    text = (content or "").lstrip()
+    return text.startswith("Error:") or text.startswith(INTERRUPTED_TOOL_RESULT[:12])
+
+
 def fence_tool_output(name: str, content: str) -> str:
     """Wrap a tool result so the model can tell it apart from its instructions.
 

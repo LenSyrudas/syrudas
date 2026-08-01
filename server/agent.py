@@ -17,8 +17,8 @@ from typing import AsyncIterator, Iterable, Optional
 
 from . import db
 from .chat import (
-    INTERRUPTED_TOOL_RESULT, build_history, fence_tool_output, history_budget,
-    persist_if_current, trim_history,
+    DENIED_TOOL_RESULT, INTERRUPTED_TOOL_RESULT, build_history, fence_tool_output,
+    history_budget, persist_if_current, tool_result_failed, trim_history,
 )
 from .config import DEFAULT_WORKSPACE, MAX_AGENT_STEPS
 from .providers.base import ModelProvider
@@ -275,7 +275,7 @@ async def stream_agent_chat(
                         if await _await_approval(approval_id, future):
                             result = await _run_tool(tool_map[tc.name], tc)
                         else:
-                            result = "The user denied this tool call."
+                            result = DENIED_TOOL_RESULT
                     # record before announcing: a dropped connection surfaces
                     # as a cancellation at the yield below, and a result the
                     # tool really produced must not be overwritten by the
@@ -293,6 +293,10 @@ async def stream_agent_chat(
                         "tool_call_id": tc.id,
                         "name": tc.name,
                         "content": result,
+                        # the UI showed every result as a tick, including
+                        # denials and errors; it needs telling which is which
+                        "is_error": tool_result_failed(result),
+                        "denied": result == DENIED_TOOL_RESULT,
                     }
             finally:
                 _close_tool_gap(conv["id"], gen, tool_calls, answered)

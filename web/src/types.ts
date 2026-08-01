@@ -47,6 +47,10 @@ export interface StreamEvent {
   tool_call_id?: string
   name?: string
   content?: string
+  /** on tool_result: the call failed rather than answering */
+  is_error?: boolean
+  /** on tool_result: the user refused the call at the approval gate */
+  denied?: boolean
   message?: string
   phase?: string
   detail?: string
