@@ -881,6 +881,23 @@ body {
 
 /* offer to put back an AI edit: the splice bypasses the textarea, so the
    browser's own undo no longer covers it */
+.cookbook-pull-any {
+  margin: 4px 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cookbook-pull-any label {
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.cookbook-pull-any input {
+  flex: 1;
+  min-width: 260px;
+}
+
 .doc-undo {
   display: flex;
   align-items: center;

@@ -32,42 +32,30 @@ _TAGS_TIMEOUT = httpx.Timeout(8.0)
 # a pull can take many minutes; no read timeout, just a connect budget
 _PULL_TIMEOUT = httpx.Timeout(10.0, read=None)
 
-# Curated Ollama models. Footprints are rough Q4 estimates in GB.
+# A few suggested starting points, one per size band, NOT a model directory.
+#
+# This list can only be changed by editing source, rebuilding the exe and
+# cutting a release, so anything specific dates badly - a long catalog is a
+# promise to keep current that the delivery mechanism cannot honour. The pull
+# endpoint accepts any valid name, including hf.co/... references, so the
+# free-text box is the way to get anything not listed here.
+#
+# Footprints are rough Q4 estimates in GB.
 CATALOG: list[dict] = [
-    {"name": "llama3.2:1b", "params": "1B", "size_gb": 1.3, "min_vram_gb": 2, "min_ram_gb": 4,
-     "tags": ["chat", "tools"], "blurb": "Tiny and fast - runs on almost anything."},
     {"name": "llama3.2:3b", "params": "3B", "size_gb": 2.0, "min_vram_gb": 4, "min_ram_gb": 6,
      "tags": ["chat", "tools"], "blurb": "Small all-rounder with tool use."},
-    {"name": "qwen2.5:3b", "params": "3B", "size_gb": 1.9, "min_vram_gb": 4, "min_ram_gb": 6,
-     "tags": ["chat", "tools", "code"], "blurb": "Capable small model, decent at code."},
-    {"name": "phi3.5:3.8b", "params": "3.8B", "size_gb": 2.2, "min_vram_gb": 4, "min_ram_gb": 6,
-     "tags": ["chat", "reasoning"], "blurb": "Punches above its size on reasoning."},
     {"name": "llama3.1:8b", "params": "8B", "size_gb": 4.7, "min_vram_gb": 6, "min_ram_gb": 10,
      "tags": ["chat", "tools"], "blurb": "Strong general-purpose model with good tool use."},
-    {"name": "qwen2.5:7b", "params": "7B", "size_gb": 4.7, "min_vram_gb": 6, "min_ram_gb": 10,
-     "tags": ["chat", "tools", "code"], "blurb": "Excellent 7B all-rounder."},
-    {"name": "mistral:7b", "params": "7B", "size_gb": 4.1, "min_vram_gb": 6, "min_ram_gb": 10,
-     "tags": ["chat", "tools"], "blurb": "Fast, reliable 7B classic."},
     {"name": "qwen2.5-coder:7b", "params": "7B", "size_gb": 4.7, "min_vram_gb": 6, "min_ram_gb": 10,
      "tags": ["code", "tools"], "blurb": "Coding-focused; good for the agent."},
-    {"name": "deepseek-r1:8b", "params": "8B", "size_gb": 4.9, "min_vram_gb": 6, "min_ram_gb": 10,
-     "tags": ["chat", "reasoning"], "blurb": "Reasoning-tuned distilled model."},
-    {"name": "gemma2:9b", "params": "9B", "size_gb": 5.4, "min_vram_gb": 8, "min_ram_gb": 12,
-     "tags": ["chat"], "blurb": "Google's strong 9B chat model."},
     # No vision models here on purpose: message content is text-only end to end
     # (see the whitepaper's limitations), and the attachment endpoint rejects
     # images outright. Recommending a model for a capability the app cannot
     # accept input for is worse than not listing it.
     {"name": "qwen2.5:14b", "params": "14B", "size_gb": 9.0, "min_vram_gb": 12, "min_ram_gb": 18,
      "tags": ["chat", "tools", "code"], "blurb": "Bigger, sharper - needs a real GPU."},
-    {"name": "gemma2:27b", "params": "27B", "size_gb": 16.0, "min_vram_gb": 20, "min_ram_gb": 32,
-     "tags": ["chat"], "blurb": "High quality; wants 24GB-class VRAM."},
-    {"name": "qwen2.5:32b", "params": "32B", "size_gb": 20.0, "min_vram_gb": 24, "min_ram_gb": 40,
-     "tags": ["chat", "tools", "code"], "blurb": "Near-frontier local model for big GPUs."},
     {"name": "nomic-embed-text", "params": "0.1B", "size_gb": 0.3, "min_vram_gb": 2, "min_ram_gb": 2,
      "tags": ["embedding"], "blurb": "Embeddings for Knowledge / RAG."},
-    {"name": "mxbai-embed-large", "params": "0.3B", "size_gb": 0.7, "min_vram_gb": 2, "min_ram_gb": 4,
-     "tags": ["embedding"], "blurb": "Higher-quality embeddings for RAG."},
 ]
 
 

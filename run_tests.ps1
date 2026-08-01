@@ -52,8 +52,51 @@ Get-ChildItem "scripts\test_*.py" | Sort-Object Name | ForEach-Object {
 if ($Smoke) {
     Write-Host ""
     Write-Host "Smoke suites (require a live model backend)" -ForegroundColor Cyan
-    Get-ChildItem "scripts\smoke_*.py" | Sort-Object Name | ForEach-Object {
-        Invoke-Suite $_.BaseName $_.FullName
+
+    # Three of these talk to a running server and two need an MCP server
+    # registered. Neither was provided, so -Smoke could not work from a clean
+    # checkout at all - it had to be set up by hand, which meant nobody ran it,
+    # which is how smoke_mcp stayed broken through a release.
+    $smokeServer = $null
+    if (Get-NetTCPConnection -LocalPort 8040 -State Listen -ErrorAction SilentlyContinue) {
+        Write-Host "  using the server already on :8040" -ForegroundColor DarkGray
+    } else {
+        Write-Host "  starting a server on :8040" -ForegroundColor DarkGray
+        $smokeServer = Start-Process -FilePath $python `
+            -ArgumentList "-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", "8040" `
+            -PassThru -WindowStyle Hidden
+        for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Milliseconds 500
+            try { Invoke-RestMethod "http://127.0.0.1:8040/api/health" -TimeoutSec 2 | Out-Null; break } catch {}
+        }
+    }
+
+    # register a filesystem MCP server if none is configured, so the MCP smoke
+    # suites have something to talk to
+    & $python -c @"
+import asyncio, sys
+sys.path.insert(0, '.')
+from server import db
+async def main():
+    try:
+        if not await db.list_mcp_servers():
+            await db.create_mcp_server('filesystem', 'npx',
+                ['-y', '@modelcontextprotocol/server-filesystem', r'$root\data'], {})
+            print('  registered a filesystem MCP server for the smoke run')
+    finally:
+        await db.close_db()
+asyncio.run(main())
+"@
+
+    try {
+        Get-ChildItem "scripts\smoke_*.py" | Sort-Object Name | ForEach-Object {
+            Invoke-Suite $_.BaseName $_.FullName
+        }
+    } finally {
+        if ($smokeServer) {
+            Write-Host "  stopping the smoke server" -ForegroundColor DarkGray
+            Stop-Process -Id $smokeServer.Id -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

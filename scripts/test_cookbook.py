@@ -49,8 +49,13 @@ def test_catalog_integrity():
 
 
 def test_fit_ratings():
-    small = next(e for e in CATALOG if e["name"] == "llama3.2:3b")   # 4 GB vram, 6 GB ram
-    big = next(e for e in CATALOG if e["name"] == "qwen2.5:32b")     # 24 GB vram, 40 GB ram
+    # Synthetic entries rather than real catalog names: this exercises the fit
+    # LOGIC, and pinning it to specific models meant curating the catalog broke
+    # tests that have nothing to do with which models are recommended.
+    small = {"name": "small", "params": "3B", "size_gb": 2.0,
+             "min_vram_gb": 4, "min_ram_gb": 6, "tags": [], "blurb": ""}
+    big = {"name": "big", "params": "32B", "size_gb": 20.0,
+           "min_vram_gb": 24, "min_ram_gb": 40, "tags": [], "blurb": ""}
 
     assert rate_fit(hw(gpus=[gpu(24)]), small)[0] == "good"
     assert rate_fit(hw(gpus=[gpu(4)]), small)[0] == "tight"          # 4 <= 4, > 4*0.9
@@ -152,7 +157,7 @@ def test_routes():
         if path == "/api/version":
             return httpx.Response(200, json={"version": "0.1.0"})
         if path == "/api/tags":
-            return httpx.Response(200, json={"models": [{"name": "llama3.2:1b"}]})
+            return httpx.Response(200, json={"models": [{"name": "llama3.2:3b"}]})
         if path == "/api/pull":
             return httpx.Response(200, content=(
                 b'{"status":"downloading","total":10,"completed":10}\n{"status":"success"}\n'))
@@ -170,7 +175,10 @@ def test_routes():
         assert book["ollama"]["configured"] is True
         assert len(book["catalog"]) == len(CATALOG)
         assert all("fit" in m and "installed" in m for m in book["catalog"])
-        assert next(m for m in book["catalog"] if m["name"] == "llama3.2:1b")["installed"] is True
+        # a catalog entry the mock reports as installed must say so. Uses a
+        # name that is IN the catalog - "installed" is only meaningful for
+        # entries shown as cards.
+        assert next(m for m in book["catalog"] if m["name"] == "llama3.2:3b")["installed"] is True
 
         # invalid name rejected
         assert client.post("/api/cookbook/pull", headers=local,
