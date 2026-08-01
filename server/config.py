@@ -83,7 +83,12 @@ def running_from_temp() -> bool:
         return False
     import tempfile
     try:
-        return PROJECT_ROOT.is_relative_to(Path(tempfile.gettempdir()).resolve())
+        # BOTH sides resolved. Comparing an unresolved root against a resolved
+        # temp path meant the guard silently never fired wherever the two are
+        # spelled differently - Windows 8.3 short names being the usual cause,
+        # e.g. a TEMP under RUNNER~1 or a profile with a space in it.
+        return PROJECT_ROOT.resolve().is_relative_to(
+            Path(tempfile.gettempdir()).resolve())
     except (OSError, ValueError):
         return False
 

@@ -146,6 +146,10 @@ def test_the_temp_guard_catches_a_frozen_build_and_can_be_opted_out():
     import tempfile
     frozen, root = config.FROZEN, config.PROJECT_ROOT
     config.FROZEN = True
+    # Deliberately built from the UNRESOLVED temp dir, which is how a real
+    # launch path arrives. On a Windows CI runner the two spellings differ
+    # (8.3 short names under RUNNER~1), and comparing them unresolved is what
+    # made the guard silently not fire there.
     config.PROJECT_ROOT = Path(tempfile.gettempdir()) / "Temp1_SyrudasAI.zip" / "SyrudasAI"
     try:
         assert config.running_from_temp() is True, "a zip-viewer launch must be refused"
