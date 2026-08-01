@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from array import array
 from math import sqrt
 from pathlib import Path
 
 from . import db
+from .text import decode_text
 from .providers.base import ModelProvider
 
 log = logging.getLogger(__name__)
@@ -100,7 +102,7 @@ def extract_text(path: Path) -> str:
     raw = path.read_bytes()
     if len(raw) > MAX_FILE_CHARS * 4:
         raw = raw[: MAX_FILE_CHARS * 4]
-    text = raw.decode("utf-8", errors="replace")
+    text, _encoding = decode_text(raw)
     if "\x00" in text:
         raise ValueError("binary file")
     return text
@@ -138,17 +140,68 @@ async def probe(provider_id: str, model: str) -> int:
 
 # --- indexing ---
 
+# Directories that are never the documents someone meant to index. Without
+# this, pointing Knowledge at any JavaScript project spent the entire file
+# budget inside node_modules - and because collection was path-alphabetical,
+# it got there before reaching the user's own source.
+IGNORED_DIRS = {
+    "node_modules", ".git", ".venv", "venv", "env", "__pycache__", ".mypy_cache",
+    ".pytest_cache", ".ruff_cache", "dist", "build", ".next", "out", "target",
+    "vendor", ".idea", ".vscode", ".tox", "site-packages", ".cache",
+}
+
+
 def _collect_files(target: Path) -> tuple[list[Path], list[str]]:
     if target.is_file():
         return [target], []
     if not target.is_dir():
         raise ValueError(f"Not found: {target}")
-    files = sorted(
-        (p for p in target.rglob("*")
-         if p.is_file() and p.suffix.lower() in TEXT_EXTS),
-        key=lambda p: str(p).lower(),
-    )
-    skipped = []
+
+    files: list[Path] = []
+    skipped: list[str] = []
+    pruned = 0
+    unreadable = 0
+    # resolved directories already walked: a junction or symlink pointing at an
+    # ancestor otherwise recurses until Windows raises WinError 1921 and takes
+    # the whole indexing run down with it
+    seen: set[str] = set()
+
+    for root, dirnames, filenames in os.walk(target, onerror=lambda _e: None):
+        try:
+            real = os.path.realpath(root)
+        except OSError:
+            dirnames[:] = []
+            continue
+        if real in seen:
+            dirnames[:] = []
+            continue
+        seen.add(real)
+
+        keep = []
+        for d in dirnames:
+            if d in IGNORED_DIRS or d.startswith("."):
+                pruned += 1
+            else:
+                keep.append(d)
+        dirnames[:] = keep  # in place, so os.walk does not descend into them
+
+        for name in filenames:
+            p = Path(root) / name
+            if p.suffix.lower() not in TEXT_EXTS:
+                continue
+            try:
+                if p.is_file():
+                    files.append(p)
+            except OSError:
+                # a single unreadable entry skips a line rather than 502ing the
+                # whole request, which is what an exception here used to do
+                unreadable += 1
+
+    files.sort(key=lambda p: str(p).lower())
+    if pruned:
+        skipped.append(f"{pruned} dependency/build folders")
+    if unreadable:
+        skipped.append(f"{unreadable} unreadable files")
     if len(files) > MAX_FILES_PER_INDEX:
         skipped.append(f"{len(files) - MAX_FILES_PER_INDEX} files over the "
                        f"{MAX_FILES_PER_INDEX}-file limit")
