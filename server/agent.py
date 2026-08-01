@@ -11,6 +11,7 @@ both OpenAI and Anthropic, and the rows are already on disk by then.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from typing import AsyncIterator, Iterable, Optional
@@ -32,6 +33,14 @@ _pending_approvals: dict[str, asyncio.Future] = {}
 
 # writes handed off by a cancelled run; referenced so they can't be GC'd mid-flight
 _detached_writes: set[asyncio.Task] = set()
+
+MAX_IDENTICAL_CALLS = 3
+# A step that yields no text AND no tool calls produced nothing to persist and
+# nothing to act on - a model still loading, or a backend that hiccupped. Only
+# that case is retried: anything already streamed cannot be taken back, so a
+# retry mid-reply would duplicate output.
+MAX_EMPTY_RETRIES = 2
+EMPTY_RETRY_BACKOFF_S = (1.0, 3.0)
 
 STOP_NOTES = {
     "step_limit": f"[Agent stopped: reached the {MAX_AGENT_STEPS}-step limit]",
@@ -213,6 +222,8 @@ async def stream_agent_chat(
     history = await build_history(conv, budget)
 
     stop_reason = "complete"
+    repeats: dict[str, int] = {}
+    empty_retries = 0
     try:
         for _step in range(MAX_AGENT_STEPS):
             # Re-trim every step, not once per turn. A tool-heavy run appends
@@ -254,15 +265,35 @@ async def stream_agent_chat(
                 break
             if not tool_calls:
                 if not text:
+                    if empty_retries < MAX_EMPTY_RETRIES:
+                        delay = EMPTY_RETRY_BACKOFF_S[empty_retries]
+                        log.info("Step produced nothing; retrying in %.1fs (%d/%d)",
+                                 delay, empty_retries + 1, MAX_EMPTY_RETRIES)
+                        empty_retries += 1
+                        await asyncio.sleep(delay)
+                        continue
                     stop_reason = "empty_response"
                 break
+            empty_retries = 0  # a productive step clears the budget
 
             # from here the tool_calls are on disk, so every one of them has to
             # come back answered even if we're torn down mid-flight
             answered: set[str] = set()
             try:
                 for tc in tool_calls:
-                    result = await _execute_tool_call(tool_map, tc)
+                    key = _repeat_key(tc)
+                    repeats[key] = repeats.get(key, 0) + 1
+                    if repeats[key] > MAX_IDENTICAL_CALLS:
+                        # the same call with the same arguments, over and over:
+                        # a malformed blob or a stuck model could otherwise burn
+                        # every remaining step on it, with an approval prompt
+                        # each time
+                        result = (
+                            f"Error: {tc.name} has already been called {MAX_IDENTICAL_CALLS} "
+                            "times with these exact arguments and kept failing. Change the "
+                            "arguments or try a different approach.")
+                    else:
+                        result = await _execute_tool_call(tool_map, tc)
                     if result is None:
                         # approval path: emit events through the generator
                         approval_id = uuid.uuid4().hex
@@ -319,11 +350,43 @@ async def stream_agent_chat(
     yield {"type": "done"}
 
 
+def _schema_complaint(tool: Tool, args: dict) -> Optional[str]:
+    """Check a call against the schema the tool advertised, before running it.
+
+    Arguments went straight through unchecked. When a model emitted malformed
+    JSON the adapter fabricated {"_raw": "..."} and the tool received that,
+    so file_write saw no `path`, did whatever it does with nothing, and the
+    model got a confusing failure it could not learn from. Naming the schema
+    back at it is a signal it can act on.
+    """
+    schema = tool.parameters or {}
+    props = schema.get("properties") or {}
+    if "_raw" in args:
+        return (f"Error: the arguments for {tool.name} were not valid JSON, so nothing "
+                f"was run. Send them as a JSON object matching: {json.dumps(props)}")
+    missing = [k for k in (schema.get("required") or []) if k not in args]
+    if missing:
+        return (f"Error: {tool.name} is missing required argument(s) "
+                f"{', '.join(missing)}. Expected: {json.dumps(props)}")
+    unknown = [k for k in args if props and k not in props]
+    if unknown:
+        return (f"Error: {tool.name} got unexpected argument(s) "
+                f"{', '.join(unknown)}. Expected only: {', '.join(props)}")
+    return None
+
+
+def _repeat_key(tc: ToolCall) -> str:
+    return f"{tc.name}:{json.dumps(tc.arguments, sort_keys=True, default=str)}"
+
+
 async def _execute_tool_call(tool_map: dict[str, Tool], tc: ToolCall) -> Optional[str]:
     """Run a tool immediately, or return None when it needs the approval flow."""
     tool = tool_map.get(tc.name)
     if tool is None:
         return f"Error: unknown tool '{tc.name}'"
+    invalid = _schema_complaint(tool, tc.arguments)
+    if invalid:
+        return invalid
     try:
         gated = await tool.needs_approval(tc.arguments)
     except Exception as exc:

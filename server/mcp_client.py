@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import logging
 import re
 import shutil
@@ -87,8 +88,18 @@ def _config_key(server: dict) -> str:
 
 _conns: dict[str, _Conn] = {}
 
+# server id -> monotonic time before which not to retry a failed connection.
+# Without this a dead or misconfigured server was reconnected on EVERY message,
+# and because the connect timeout is 90s and the loop is serial, one bad entry
+# added a minute and a half of silence before the first token, every time.
+FAILURE_COOLDOWN_S = 120
+_cooldown: dict[str, float] = {}
+
 
 async def _get_conn(server: dict) -> Optional[_Conn]:
+    until = _cooldown.get(server["id"])
+    if until and time.monotonic() < until:
+        return None
     conn = _conns.get(server["id"])
     if conn and (not conn.alive and conn._ready.is_set() or conn.config_key != _config_key(server)):
         await conn.close()
@@ -101,8 +112,11 @@ async def _get_conn(server: dict) -> Optional[_Conn]:
     except asyncio.TimeoutError:
         conn.error = f"timed out after {CONNECT_TIMEOUT_S}s waiting for server start"
     if conn.session is None:
-        log.warning("MCP server %r unavailable: %s", server["name"], conn.error)
+        log.warning("MCP server %r unavailable (%s); not retrying for %ds",
+                    server["name"], conn.error, FAILURE_COOLDOWN_S)
+        _cooldown[server["id"]] = time.monotonic() + FAILURE_COOLDOWN_S
         return None
+    _cooldown.pop(server["id"], None)
     return conn
 
 
@@ -110,6 +124,7 @@ async def close_all() -> None:
     for conn in list(_conns.values()):
         await conn.close()
     _conns.clear()
+    _cooldown.clear()
 
 
 def _sanitize(name: str) -> str:
