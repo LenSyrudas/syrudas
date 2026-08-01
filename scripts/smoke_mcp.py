@@ -1,4 +1,11 @@
-"""Smoke test MCP integration: agent should use a filesystem MCP tool."""
+"""Smoke test MCP integration: agent should use a filesystem MCP tool.
+
+MCP tools are approval-gated, so this has to answer the prompt the way the UI
+would - the loop parks on `approval_required` until POST /approvals/{id}
+arrives. The approval goes out on a SECOND client: the streaming response holds
+this one open, and the loop cannot proceed until the approval lands, so
+answering on the same connection deadlocks.
+"""
 import asyncio
 import json
 import sys
@@ -6,6 +13,12 @@ import sys
 import httpx
 
 BASE = "http://127.0.0.1:8040/api"
+
+
+async def approve(approval_id: str) -> None:
+    async with httpx.AsyncClient(timeout=30) as side:
+        resp = await side.post(f"{BASE}/approvals/{approval_id}", json={"approve": True})
+        print(f"approved {approval_id[:8]} -> HTTP {resp.status_code}")
 
 
 async def main() -> int:
@@ -19,7 +32,7 @@ async def main() -> int:
             "agent_mode": True,
             "params": {"temperature": 0},
         }
-        used, results = [], []
+        used, results, gated = [], [], []
         async with client.stream("POST", f"{BASE}/chat", json=req) as resp:
             async for line in resp.aiter_lines():
                 if not line.strip():
@@ -28,6 +41,10 @@ async def main() -> int:
                 if ev["type"] == "tool_call":
                     used.append(ev["tool_call"]["name"])
                     print("tool_call:", ev["tool_call"]["name"], ev["tool_call"]["arguments"])
+                elif ev["type"] == "approval_required":
+                    gated.append(ev["tool_call"]["name"])
+                    print("approval_required:", ev["tool_call"]["name"])
+                    await approve(ev["approval_id"])
                 elif ev["type"] == "tool_result":
                     results.append(ev["content"])
                     print("tool_result:", ev["content"][:200].replace("\n", " | "))
@@ -35,8 +52,11 @@ async def main() -> int:
                     print("ERROR:", ev["message"])
                     return 1
         assert any(n.startswith("filesystem_") for n in used), f"MCP tool not used: {used}"
+        assert any(n.startswith("filesystem_") for n in gated), \
+            f"MCP tools must be approval-gated, but none prompted: {gated}"
         assert any("workspace" in r or "syrudas.db" in r for r in results), "unexpected MCP result"
-        print("\nMCP SMOKE TEST PASSED (tools used: %s)" % ", ".join(used))
+        print("\nMCP SMOKE TEST PASSED (tools used: %s; gated: %s)"
+              % (", ".join(used), ", ".join(gated)))
     return 0
 
 
