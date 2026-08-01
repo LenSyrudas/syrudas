@@ -23,6 +23,10 @@ export default function CookbookView() {
   const [loadError, setLoadError] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({}) // per-model action errors
   const [filter, setFilter] = useState('all')
+  // The catalog is five suggestions, not a directory. The pull endpoint has
+  // always accepted any valid name - only the UI restricted you to the cards -
+  // so this is the way to fetch anything else, including hf.co/... references.
+  const [customName, setCustomName] = useState('')
   // per-model pull progress: absent = not pulling
   const [progress, setProgress] = useState<Record<string, { status: string; percent: number | null }>>({})
   const aborts = useRef<Record<string, AbortController>>({})
@@ -146,6 +150,34 @@ export default function CookbookView() {
         </div>
       )}
       {loadError && <div className="form-error">⚠ {loadError}</div>}
+
+      <div className="cookbook-pull-any">
+        <label htmlFor="pull-any">Pull any model by name</label>
+        <div className="row">
+          <input
+            id="pull-any"
+            value={customName}
+            placeholder="e.g. mistral:7b or hf.co/user/repo-GGUF:Q4_K_M"
+            onChange={(e) => setCustomName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && customName.trim() && !e.nativeEvent.isComposing) {
+                void pull(customName.trim())
+                setCustomName('')
+              }
+            }}
+          />
+          <button
+            className="btn"
+            disabled={!customName.trim()}
+            onClick={() => {
+              void pull(customName.trim())
+              setCustomName('')
+            }}
+          >
+            Pull
+          </button>
+        </div>
+      </div>
 
       <div className="cookbook-filters">
         {FILTERS.map((f) => (

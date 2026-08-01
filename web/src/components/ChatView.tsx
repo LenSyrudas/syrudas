@@ -45,7 +45,14 @@ function CopyButton({ text, className = '' }: { text: string; className?: string
   )
 }
 
+export interface Draft {
+  input: string
+  pending: Attachment[]
+}
+
 interface Props {
+  draft: Draft
+  onDraftChange: (d: Draft) => void
   conversationId: string | null
   providerId: string
   model: string
@@ -63,6 +70,8 @@ interface Props {
 }
 
 export default function ChatView({
+  draft,
+  onDraftChange,
   conversationId,
   providerId,
   model,
@@ -76,21 +85,35 @@ export default function ChatView({
   onOpenSettings,
 }: Props) {
   const [items, setItems] = useState<ChatItem[]>([])
+  // Owned by App and keyed by conversation, so switching chats (which remounts
+  // this component) no longer discards a typed prompt or an uploaded file.
+  const input = draft.input
+  const pending = draft.pending
+  const setInput = (v: string | ((p: string) => string)) =>
+    onDraftChange({ ...draftRef.current, input: typeof v === 'function' ? v(draftRef.current.input) : v })
+  const setPending = (v: Attachment[] | ((p: Attachment[]) => Attachment[])) =>
+    onDraftChange({ ...draftRef.current, pending: typeof v === 'function' ? v(draftRef.current.pending) : v })
+  // a ref so the setters above see the latest draft even when several fire
+  // before React re-renders (upload completes while the user keeps typing)
+  const draftRef = useRef(draft)
+  draftRef.current = draft
   // Any external caller can prefill the composer via ?prompt= (a shortcut, a
-  // script, another editor) - read once, then scrub it from the URL so reloads
-  // start clean.
-  const [input, setInput] = useState(() => {
+  // script, another editor) - read once, then scrub it from the URL.
+  const promptRead = useRef(false)
+  if (!promptRead.current) {
+    promptRead.current = true
     const prompt = new URLSearchParams(window.location.search).get('prompt')
-    if (prompt) window.history.replaceState(null, '', window.location.pathname)
-    return prompt ?? ''
-  })
+    if (prompt) {
+      window.history.replaceState(null, '', window.location.pathname)
+      if (!draft.input) onDraftChange({ ...draft, input: prompt })
+    }
+  }
   const [streaming, setStreaming] = useState(false)
   // busy covers rewind round-trips before streaming starts; busyRef is the
   // SYNCHRONOUS re-entrancy guard (React state lags awaits, so a double-click
   // would otherwise rewind twice and destroy an extra user turn)
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
-  const [pending, setPending] = useState<Attachment[]>([])
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [detecting, setDetecting] = useState(false)
@@ -292,9 +315,11 @@ export default function ChatView({
         setDetectMsg(`Found ${res.added.map((p) => p.name).join(' and ')}.`)
         onProvidersChanged()
       } else {
-        setDetectMsg(
-          'Nothing answered on the usual ports. Start Ollama (or LM Studio) and try again.',
-        )
+        // "nothing added" has three causes and this used to report the least
+        // likely one. The server now says which, so a backend that is running
+        // but has no models pulled is told to pull one rather than to start
+        // the thing it can already see running.
+        setDetectMsg(res.hint)
       }
     } catch (e) {
       setDetectMsg(String(e))
@@ -331,7 +356,8 @@ export default function ChatView({
                 ? agentMode
                   ? 'Agent mode: the model can plan and use tools. Shell commands, web fetches and writes outside the workspace wait for your approval.'
                   : 'Ask anything. Swap models any time from the picker above.'
-                : 'No model backend yet. Start Ollama or LM Studio, then look again — or add a provider by hand in Settings.'}
+                : (detectMsg ||
+                    'No model backend yet. Start Ollama or LM Studio, then look again — or add a provider by hand in Settings.')}
             </p>
             {!canSend && (
               <div className="setup-actions">

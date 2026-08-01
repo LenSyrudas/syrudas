@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import db
-from ..onboarding import detect_local_providers
+from ..onboarding import detect_local_providers, probe_backends
 from ..providers.registry import create_provider, provider_types
 
 router = APIRouter(tags=["providers"])
@@ -66,9 +66,14 @@ async def detect_providers():
     user fix that from the UI instead of typing a base URL by hand.
     """
     added = await detect_local_providers()
+    # the probe result travels with the answer: "nothing added" has three very
+    # different causes and the UI used to report the same sentence for all of them
+    probe = await probe_backends()
     return {
         "added": [_mask(i) for i in added],
         "providers": [_mask(i) for i in await db.list_provider_instances()],
+        "state": probe["state"],
+        "hint": probe["hint"],
     }
 
 

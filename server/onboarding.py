@@ -26,14 +26,52 @@ LOCAL_BACKENDS = [
 FLAG_KEY = "auto_detect_done"
 
 
-async def _probe(name: str, base_url: str) -> tuple[str, str] | None:
-    """Return (name, base_url) if a backend answers there with models."""
+# A probe has three outcomes, not two. Collapsing "answered but has no models"
+# into "nothing there" is why the commonest first run - Ollama installed,
+# nothing pulled yet - told the user to start the backend that was already
+# running, which is unactionable advice for the exact state most people are in.
+NO_BACKEND = "no_backend"
+NO_MODELS = "no_models"
+READY = "ready"
+
+
+async def _probe(name: str, base_url: str) -> tuple[str, str, str]:
+    """Return (outcome, name, base_url) for one well-known backend."""
     try:
         provider = create_provider("openai_compat", {"base_url": base_url})
         models = await asyncio.wait_for(provider.list_models(), timeout=4)
     except Exception:
-        return None
-    return (name, base_url) if models else None
+        return (NO_BACKEND, name, base_url)
+    return (READY if models else NO_MODELS, name, base_url)
+
+
+async def probe_backends() -> dict:
+    """What the well-known local backends look like right now.
+
+    Used by the UI to say something true and actionable on an empty first run.
+    """
+    results = await asyncio.gather(*(_probe(n, u) for n, u in LOCAL_BACKENDS))
+    running = [(n, u) for outcome, n, u in results if outcome != NO_BACKEND]
+    ready = [(n, u) for outcome, n, u in results if outcome == READY]
+    if ready:
+        state = READY
+    elif running:
+        state = NO_MODELS
+    else:
+        state = NO_BACKEND
+    return {
+        "state": state,
+        "running": [{"name": n, "base_url": u} for n, u in running],
+        "hint": {
+            READY: "A local model backend is running and has models.",
+            NO_MODELS: (
+                f"{running[0][0].split()[0] if running else 'A backend'} is running but has "
+                "no models yet. Pull one first, for example: ollama pull llama3.1:8b"),
+            NO_BACKEND: (
+                "No local model backend answered. Install and start Ollama "
+                "(https://ollama.com) or LM Studio, then look again."),
+        }[state],
+    }
 
 
 async def detect_local_providers() -> list[dict]:
@@ -52,10 +90,11 @@ async def detect_local_providers() -> list[dict]:
     results = await asyncio.gather(*(_probe(n, u) for n, u in LOCAL_BACKENDS))
 
     added: list[dict] = []
-    for found in results:
-        if not found:
+    for outcome, name, base_url in results:
+        # only a backend that actually serves models is worth configuring: an
+        # instance pointing at an empty one puts a broken entry in the picker
+        if outcome != READY:
             continue
-        name, base_url = found
         if base_url.rstrip("/") in existing:
             continue
         inst = await db.create_provider_instance(

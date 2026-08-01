@@ -9,6 +9,7 @@ import EditorView from './components/EditorView'
 import ModelPicker from './components/ModelPicker'
 import SettingsView from './components/SettingsView'
 import Sidebar from './components/Sidebar'
+import type { Draft } from './components/ChatView'
 import type { Conversation, ProviderInstance } from './types'
 
 function loadGenParams(): GenParams {
@@ -36,6 +37,9 @@ function App() {
   // Remount ChatView only when the user switches chats — NOT when a new
   // conversation gets its id mid-stream, or the live stream display is lost.
   const [chatKey, setChatKey] = useState(() => localStorage.getItem('syrudas.activeId') || 'new')
+  // unsent composer state per conversation, so remounting ChatView on a switch
+  // does not discard a typed prompt or an uploaded attachment
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const [providers, setProviders] = useState<ProviderInstance[]>([])
   const [providerId, setProviderId] = useState<string>(
     () => localStorage.getItem('syrudas.providerId') ?? '',
@@ -228,6 +232,12 @@ function App() {
             )}
             <ChatView
               key={chatKey}
+              // ChatView is remounted on every chat switch, which used to throw
+              // away a half-written prompt and any files already uploaded. The
+              // draft lives here instead, keyed by conversation, so switching
+              // away and back returns it.
+              draft={drafts[chatKey] ?? { input: '', pending: [] }}
+              onDraftChange={(d) => setDrafts((prev) => ({ ...prev, [chatKey]: d }))}
               conversationId={activeId}
               providerId={providerId}
               model={model}

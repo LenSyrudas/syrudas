@@ -8,6 +8,7 @@ These requests are stateless passthroughs - they don't touch conversations.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 import uuid
@@ -19,6 +20,8 @@ from fastapi.responses import StreamingResponse
 from .. import db
 from ..providers.registry import create_provider
 from ..schemas import GenParams, Message, ToolCall, ToolSpec
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["openai-compat-api"])
 
@@ -40,11 +43,24 @@ async def _instances_by_slug() -> dict[str, dict]:
 def _split_model(model: str, instances: dict[str, dict]) -> tuple[dict, str]:
     if "/" in model:
         slug, _, model_id = model.partition("/")
-        if slug in instances and model_id:
-            return instances[slug], model_id
-    # bare model id: fall back to the first instance (single-backend setups)
-    if instances and model:
+        # slugs are lowercased when built, so match the same way rather than
+        # silently falling through to the bare-id branch on a capitalised name
+        if model_id and slug.lower() in instances:
+            return instances[slug.lower()], model_id
+        raise HTTPException(
+            404, f"Unknown model: {model!r}. No provider named {slug!r}. "
+                 "GET /v1/models lists valid ids.")
+    # A bare id is only unambiguous with a single backend configured. With
+    # several, this used to pick whichever happened to be first, so a typo or a
+    # stale config returned a confident answer from a model the caller never
+    # asked for - indistinguishable from the real thing.
+    if model and len(instances) == 1:
         return next(iter(instances.values())), model
+    if model and len(instances) > 1:
+        raise HTTPException(
+            404, f"Ambiguous model: {model!r}. {len(instances)} providers are "
+                 "configured, so qualify it as <provider>/<model>. "
+                 "GET /v1/models lists valid ids.")
     raise HTTPException(404, f"Unknown model: {model!r}. GET /v1/models lists valid ids.")
 
 
@@ -147,6 +163,11 @@ async def chat_completions(body: dict):
             payload["usage"] = usage
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
+    def _error_frame(message: str, code: str = "upstream_error") -> str:
+        """An OpenAI-shaped error, so a client raises instead of believing it."""
+        payload = {"error": {"message": message, "type": "server_error", "code": code}}
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
     if body.get("stream"):
         async def sse():
             tool_index = 0
@@ -174,7 +195,15 @@ async def chat_completions(body: dict):
                         "total_tokens": (ev.input_tokens or 0) + (ev.output_tokens or 0),
                     }
                 elif ev.type == "error":
-                    yield _chunk({"content": f"\n[Syrudas error: {ev.message}]"})
+                    # An error used to arrive as ordinary assistant content and
+                    # the stream still closed with finish_reason "stop", so
+                    # Continue, aider and any script read a backend failure as a
+                    # completed answer. Emit a real error frame and stop - and
+                    # deliberately no [DONE], because that is the marker for a
+                    # stream that finished properly.
+                    log.warning("/v1 upstream error for %s: %s", model_id, ev.message)
+                    yield _error_frame(ev.message or "the model provider failed")
+                    return
             yield _chunk({}, finish=finish, usage=usage)
             yield "data: [DONE]\n\n"
 
@@ -198,7 +227,11 @@ async def chat_completions(body: dict):
             }
         elif ev.type == "error":
             error = ev.message
-    if error and not text_parts and not tool_calls:
+    if error:
+        # `and not text_parts` used to let a failure part-way through a reply
+        # be returned as a successful, truncated completion. A caller cannot
+        # tell that from a short answer, so any error fails the request.
+        log.warning("/v1 upstream error for %s: %s", model_id, error)
         raise HTTPException(502, f"Provider error: {error}")
 
     message: dict = {"role": "assistant", "content": "".join(text_parts)}

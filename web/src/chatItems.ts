@@ -14,6 +14,37 @@ export interface ToolItem {
   approvalId?: string
 }
 
+/** Mirrors `tool_result_failed` in server/chat.py.
+ *
+ *  Tools report failure by returning a string starting with "Error:" — there is
+ *  no separate channel — so classification is by convention. The live stream
+ *  carries the server's verdict as `is_error`; this is the same rule applied to
+ *  a row read back from storage, so the two cannot disagree about one result.
+ */
+export function statusForResult(content: string): ToolItem['status'] {
+  const text = content.trimStart()
+  if (text === DENIED_TOOL_RESULT) return 'denied'
+  if (text.startsWith('Error:') || text.startsWith('[interrupted')) return 'error'
+  return 'done'
+}
+
+export const DENIED_TOOL_RESULT = 'The user denied this tool call.'
+
+/** Remove the tool-output fence from text the model wrote.
+ *
+ *  Results are wrapped in `<<<TOOL_OUTPUT name BEGIN/END>>>` so the model can
+ *  tell data from instructions, and smaller models then imitate the syntax in
+ *  their own replies. Harmless — a model emitting the marker gains nothing —
+ *  but it is our punctuation leaking into the user's answer, so it is stripped
+ *  for display only. Applied to the accumulated string rather than each delta,
+ *  so a marker split across two chunks is still caught.
+ */
+const FENCE_RE = /<<<\s*TOOL_OUTPUT\b[^>]*>>>/gi
+
+export function stripFence(text: string): string {
+  return text.includes('<<<') ? text.replace(FENCE_RE, '') : text
+}
+
 export interface ResearchItem {
   kind: 'research'
   phase: string
@@ -77,17 +108,23 @@ export function itemsFromMessages(conv: Conversation): ChatItem[] {
           m.input_tokens != null || m.output_tokens != null
             ? { input: m.input_tokens ?? undefined, output: m.output_tokens ?? undefined }
             : undefined
-        loaded.push({ kind: 'assistant', content: m.content, usage })
+        loaded.push({ kind: 'assistant', content: stripFence(m.content), usage })
       }
       for (const tc of m.tool_calls ?? []) {
-        loaded.push({ kind: 'tool', call: tc, status: 'done' })
+        // 'running' until its result row is seen. Pushing 'done' here meant a
+        // call that failed, was denied, or never finished at all came back from
+        // storage wearing a green tick.
+        loaded.push({ kind: 'tool', call: tc, status: 'running' })
       }
     } else if (m.role === 'tool') {
       const tool = loaded.find(
         (it): it is ToolItem =>
           it.kind === 'tool' && it.call.id === m.tool_call_id && it.result === undefined,
       )
-      if (tool) tool.result = m.content
+      if (tool) {
+        tool.result = m.content
+        tool.status = statusForResult(m.content ?? '')
+      }
     }
   }
   return loaded
@@ -105,9 +142,12 @@ export function applyEvent(prev: ChatItem[], ev: StreamEvent): ChatItem[] {
   switch (ev.type) {
     case 'text_delta': {
       if (last?.kind === 'assistant' && last.streaming) {
-        next[next.length - 1] = { ...last, content: last.content + (ev.text ?? '') }
+        next[next.length - 1] = {
+          ...last,
+          content: stripFence(last.content + (ev.text ?? '')),
+        }
       } else {
-        next.push({ kind: 'assistant', content: ev.text ?? '', streaming: true })
+        next.push({ kind: 'assistant', content: stripFence(ev.text ?? ''), streaming: true })
       }
       break
     }
@@ -160,7 +200,14 @@ export function applyEvent(prev: ChatItem[], ev: StreamEvent): ChatItem[] {
         next[idx] = {
           ...tool,
           result: ev.content ?? '',
-          status: tool.status === 'denied' ? 'denied' : 'done',
+          // the server classifies; fall back to the same rule so a live event
+          // and the reloaded row can never disagree about the same result
+          status:
+            ev.denied || tool.status === 'denied'
+              ? 'denied'
+              : ev.is_error ?? false
+                ? 'error'
+                : statusForResult(ev.content ?? ''),
         }
       }
       break

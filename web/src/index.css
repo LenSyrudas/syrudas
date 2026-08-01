@@ -879,6 +879,38 @@ body {
   background: var(--bg-card);
 }
 
+/* offer to put back an AI edit: the splice bypasses the textarea, so the
+   browser's own undo no longer covers it */
+.cookbook-pull-any {
+  margin: 4px 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cookbook-pull-any label {
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.cookbook-pull-any input {
+  flex: 1;
+  min-width: 260px;
+}
+
+.doc-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--dim);
+  font-size: 13px;
+}
+
 .doc-suggestion-head {
   display: flex;
   align-items: center;

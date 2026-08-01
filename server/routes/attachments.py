@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 
+from ..text import decode_text, looks_binary
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 router = APIRouter(tags=["attachments"])
