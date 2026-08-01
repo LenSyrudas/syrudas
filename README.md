@@ -114,14 +114,21 @@ chat. Toggle **Agent mode** to let the model use tools.
 
 ### Desktop app (one-click exe)
 
-`.\build_exe.ps1` builds **SyrudasAI.exe** (PyInstaller onefile) into the project root.
-Double-click it and Syrudas opens as a native window (WebView2 via pywebview — built into
-Windows 11, no browser needed); closing the window stops the server. A second launch
-opens a window onto the running instance, and if the native webview is unavailable it
-falls back to your default browser. The exe keeps its state (`data\`, `plugins\`) beside
-itself, so copying it anywhere gives a fresh portable install — next to this repo it
-shares the dev database. Logs go to `data\syrudas.log`. Dev equivalents:
-`python desktop.py` (window) or `.\run.ps1` (browser).
+`.\build_exe.ps1` builds **dist\SyrudasAI\** (PyInstaller onedir): `SyrudasAI.exe` plus the
+`_internal\` runtime it needs beside it. Double-click the exe and Syrudas opens as a native
+window (WebView2 via pywebview — built into Windows 11, no browser needed); closing the
+window stops the server. A second launch opens a window onto the running instance, and if
+the native webview is unavailable it falls back to your default browser. The app keeps its
+state (`data\`, `plugins\`) in that folder, so copying the folder anywhere gives a fresh
+portable install. Logs go to `data\syrudas.log`. Dev equivalents: `python desktop.py`
+(window) or `.\run.ps1` (browser) — those use the repository's own `data\`.
+
+It is `--onedir` rather than `--onefile` on purpose. A onefile build is a self-extracting
+archive that unpacks its whole runtime into `%TEMP%` on every launch: slower to start, and
+the exact shape antivirus heuristics are tuned for — an unsigned self-extractor with no
+download reputation is the worst case for Defender's ML classifier. Onedir ships the
+runtime as ordinary files, so nothing extracts at run time. The cost is a folder rather
+than a single file, which is free here because the release was always a folder in a zip.
 
 ## Use your models from other tools
 
@@ -197,7 +204,7 @@ data/              SQLite DB + agent workspace (gitignored)
 
 ## Status
 
-Version 1.0.0, and single-maintainer by design. Windows-only in a deeper sense than
+Version 1.0.1, and single-maintainer by design. Windows-only in a deeper sense than
 packaging: the shell tool spawns PowerShell, hardware detection reads WMI, the desktop
 shell targets WebView2. Text-only — a vision model can be selected but never fed an
 image. API keys are stored in plaintext in the local database and masked in every API
