@@ -70,17 +70,21 @@ run `.\verify_release.ps1` yourself before shipping.
 
 ### 5. Tag, from master
 
+Written with `vX.Y.Z` rather than a real version on purpose: these were copied
+from a past release and left concrete, which makes the wrong tag the easiest
+thing to paste.
+
 ```powershell
-git tag -a v1.0.0 -m "v1.0.0: short description"
-git push origin v1.0.0
-git merge-base --is-ancestor v1.0.0 origin/master   # confirm it is on master
+git tag -a vX.Y.Z -m "vX.Y.Z: short description"
+git push origin vX.Y.Z
+git merge-base --is-ancestor vX.Y.Z origin/master   # confirm it is on master
 ```
 
 ### 6. Publish
 
 ```powershell
-gh release create v1.0.0 "release\SyrudasAI-v1.0.0-win64.zip" `
-  --title "Syrudas AI v1.0.0" --notes-file notes.md
+gh release create vX.Y.Z "release\SyrudasAI-vX.Y.Z-win64.zip" `
+  --title "Syrudas AI vX.Y.Z" --notes-file notes.md
 ```
 
 Write the notes for someone who has never seen the project. Describe what

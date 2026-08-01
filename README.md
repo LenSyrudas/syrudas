@@ -204,7 +204,7 @@ data/              SQLite DB + agent workspace (gitignored)
 
 ## Status
 
-Version 1.0.0, and single-maintainer by design. Windows-only in a deeper sense than
+Version 1.0.1, and single-maintainer by design. Windows-only in a deeper sense than
 packaging: the shell tool spawns PowerShell, hardware detection reads WMI, the desktop
 shell targets WebView2. Text-only — a vision model can be selected but never fed an
 image. API keys are stored in plaintext in the local database and masked in every API

@@ -1,6 +1,6 @@
 # Syrudas AI: A Local-First AI Workspace with Pluggable Model Providers
 
-**Version {{VERSION}} · July 2026 · Len · MIT License**
+**Version {{VERSION}} · August 2026 · Len · MIT License**
 
 ---
 
