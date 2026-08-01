@@ -2,14 +2,19 @@
 from __future__ import annotations
 
 import json
+import logging
+import shutil
 import sqlite3
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 import aiosqlite
 
 from .config import DB_PATH
+
+log = logging.getLogger(__name__)
 
 _conn: Optional[aiosqlite.Connection] = None
 
@@ -105,22 +110,76 @@ def new_id() -> str:
 async def get_db() -> aiosqlite.Connection:
     global _conn
     if _conn is None:
+        # captured before connecting: connecting creates the file, and the
+        # backup below is only worth taking when there was already data in it
+        existed = DB_PATH.exists() and DB_PATH.stat().st_size > 0
         _conn = await aiosqlite.connect(DB_PATH)
         _conn.row_factory = aiosqlite.Row
         await _conn.execute("PRAGMA foreign_keys = ON")
+        # CREATE TABLE IF NOT EXISTS adds whole tables but never alters an
+        # existing one, so it handles new tables and migrations handle columns
         await _conn.executescript(SCHEMA)
-        await _add_missing_columns(_conn)
+        await _migrate(_conn, existed)
         await _conn.commit()
     return _conn
 
 
-async def _add_missing_columns(conn: aiosqlite.Connection) -> None:
-    """Bring databases created before a column was added up to the current
-    schema (CREATE TABLE IF NOT EXISTS won't alter an existing table)."""
+async def _add_token_columns(conn: aiosqlite.Connection) -> None:
     cols = {r["name"] for r in await conn.execute_fetchall("PRAGMA table_info(messages)")}
     for col in ("input_tokens", "output_tokens"):
         if col not in cols:
             await conn.execute(f"ALTER TABLE messages ADD COLUMN {col} INTEGER")  # noqa: S608
+
+
+# Ordered, append-only. MIGRATIONS[n] moves a database from version n to n+1,
+# and SCHEMA_VERSION is len(MIGRATIONS). Each one must be safe to run against a
+# database that already has the change: a fresh install gets the current shape
+# from SCHEMA above and is then stamped without any of these doing work.
+#
+# This replaces a hardcoded `PRAGMA table_info(messages)` check that could only
+# ever see one table. Adding a column to conversations, documents, memories or
+# settings would have shipped a build that raised on every existing install and
+# worked perfectly on the developer's own machine.
+MIGRATIONS = [
+    _add_token_columns,      # 0 -> 1: per-message token accounting
+]
+SCHEMA_VERSION = len(MIGRATIONS)
+
+
+def _backup_path(version: int) -> Path:
+    return DB_PATH.with_name(f"{DB_PATH.stem}.pre-v{version}{DB_PATH.suffix}")
+
+
+async def _migrate(conn: aiosqlite.Connection, existed: bool) -> None:
+    """Bring the database up to SCHEMA_VERSION, or refuse to touch it."""
+    rows = await conn.execute_fetchall("PRAGMA user_version")
+    version = rows[0][0] if rows else 0
+
+    if version > SCHEMA_VERSION:
+        # a newer build already migrated this file; carrying on would mean
+        # reading a shape this code does not know, and writing over it
+        raise RuntimeError(
+            f"{DB_PATH} was created by a newer version of Syrudas "
+            f"(database schema v{version}, this build understands v{SCHEMA_VERSION}). "
+            "Update the application, or point it at a different data folder.")
+    if version == SCHEMA_VERSION:
+        return
+
+    if existed:
+        # keep a copy before altering data the user cannot recreate; safe to
+        # take here because nothing has been written in this session yet
+        backup = _backup_path(version)
+        try:
+            shutil.copy2(DB_PATH, backup)
+            log.info("Backed up the database to %s before migrating", backup.name)
+        except OSError:
+            log.exception("Could not back up %s; migrating anyway", DB_PATH)
+
+    for step in range(version, SCHEMA_VERSION):
+        log.info("Applying database migration %d -> %d", step, step + 1)
+        await MIGRATIONS[step](conn)
+    # PRAGMA does not accept a bound parameter; the value is our own int
+    await conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")  # noqa: S608
 
 
 async def close_db() -> None:
