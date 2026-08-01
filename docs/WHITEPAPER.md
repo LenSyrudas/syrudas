@@ -199,7 +199,7 @@ adding a new AI service a small, contained job instead of a rewrite.
 Everything in the previous section rests on a single class. A provider *type*
 is a Python class; a provider *instance* is that class configured with user
 data — a base URL, an API key — in the settings UI and persisted in SQLite. The
-entire contract is five methods, two of them optional:
+entire contract is five methods, three of them optional:
 
 ```python
 class ModelProvider(ABC):
@@ -210,6 +210,7 @@ class ModelProvider(ABC):
     async def list_models(self) -> list[ModelInfo]: ...
     async def chat(self, model, messages, tools=None, params=None)
         -> AsyncIterator[StreamEvent]: ...
+    async def context_tokens(self, model) -> int | None: ...        # optional
     async def embed(self, model, texts) -> list[list[float]]: ...   # optional
     async def check(self) -> str: ...                               # optional
 ```
@@ -245,11 +246,22 @@ The single builtin adapter, `openai_compat`, is enough for most of the
 ecosystem, because Ollama, LM Studio, the llama.cpp server, vLLM, OpenRouter,
 and OpenAI itself all speak the same dialect. Optional connectors for
 **Anthropic (Claude)** and **Google (Gemini)** ship as drop-in plugins that
-translate those non-OpenAI dialects. The `embed()` method is the one place the
-contract grew a new capability rather than a new backend: providers that
-implement it become eligible to power the retrieval subsystem (Section 8),
-while providers that do not simply raise `NotImplementedError` and are omitted
-from the embedding-model picker.
+translate those non-OpenAI dialects.
+
+The two optional methods beyond `check()` are the places the contract grew a new
+*capability* rather than a new backend, and both follow the same rule: a provider
+that cannot do the thing says so, and the caller degrades rather than guesses.
+Providers implementing `embed()` become eligible to power the retrieval subsystem
+(Section 8); those that do not raise `NotImplementedError` and are omitted from the
+embedding-model picker. `context_tokens()` reports the usable context window of a
+given model, which is what lets history be trimmed to the model actually selected
+(Section 5) instead of to one number for all of them. Its contract is explicitly
+that it must never guess — returning `None` means "I cannot find out" and drops the
+caller to a conservative fixed budget, because a window reported too large makes the
+backend silently discard the oldest messages, taking the system prompt and the
+user's request with them. The builtin adapter fills it in from whatever the backend
+volunteers: OpenRouter's `context_length`, or the architecture-prefixed
+`*.context_length` key in an Ollama model's metadata.
 
 ## 4. The normalized interior
 
@@ -346,15 +358,24 @@ newest messages always survive, the oldest turns fall off first, and a tool
 result whose originating tool call was trimmed away is dropped rather than sent
 as a dangling reference that confuses backends.
 
-Two caveats belong here rather than in a footnote, because they are the sharpest
-edges in the current system. The budget is a fixed character count, identical for
-every model, not a token count derived from the one actually selected — the
-provider contract does not yet report a context window to size it against, so the
-same number is simultaneously conservative for a long-context model and optimistic
-for a small one. And in agent mode the trim runs once, before the first step;
-a tool-heavy turn appends results as it goes and can therefore grow past the budget
-within a single turn, which is precisely when it can least afford to. Section 19
-treats both as open work rather than settled design.
+The budget itself is derived from the model actually selected. `context_tokens()`
+(Section 3) is asked what the chosen model's window is; the answer is converted at a
+deliberately pessimistic 3.5 characters per token, with a reserve held back for the
+reply and for the tool schemas an agent turn sends on every request. A provider that
+will not say falls back to a fixed conservative count, and the derived budget never
+drops *below* that floor merely because a window is small. The asymmetry is
+intentional throughout: sending less than the window could hold costs some context,
+while sending more makes the backend evict from the front — the system prompt and
+the user's original question — which is the failure that looks like the model
+ignoring what it was asked.
+
+In agent mode the trim runs **every step, not once per turn**. This is the
+correction that matters most in practice, because a tool-heavy run appends results
+as it goes: trimming once before the first step meant a run could grow past its
+budget mid-turn and evict the user's request while still working on it. Both of
+these were listed as open problems in the previous edition of this paper and are
+now closed; what remains imperfect is the character-per-token approximation itself,
+which is a heuristic standing in for a real tokenizer.
 
 ## 6. Agent mode
 
@@ -375,6 +396,19 @@ ceiling is a blunt instrument, but for a local tool it is the right kind of
 blunt: it guarantees termination without trying to be clever about what
 "stuck" means.
 
+The ceiling alone turned out not to be enough, because it bounds the *length* of a
+run without protecting the steps inside it. Two narrower guards sit under it, and
+both exist because a single bad turn could otherwise consume the whole run. A model
+that emits the same tool call with byte-identical arguments repeatedly — a
+malformed argument blob, or a small model stuck in a groove — is cut off after
+three attempts and told so in a tool result it can act on, rather than being allowed
+to spend every remaining step, and every associated approval prompt, on the same
+failing call. And a step that returns neither text nor a tool call is retried twice
+with a short backoff instead of being treated as the model having finished; an empty
+response is a transport hiccup far more often than it is an answer, and reading it
+as completion silently truncated runs that had not finished. Each guard is
+deliberately shaped to end the *step* and continue the run, not to abort the run.
+
 The builtin tools, and how each is gated, are the heart of the agent's safety
 posture:
 
@@ -387,7 +421,7 @@ posture:
 | `web_fetch` | Fetch a URL as readable text | **Per-call approval**; refuses private IPs |
 | `memory_save` / `memory_delete` / `memory_search` | Durable facts | Ungated, fully user-visible |
 | `knowledge_search` | Retrieve indexed passages | Ungated, read-only |
-| MCP server tools | Whatever the registered server exposes | Ungated — see Section 19 |
+| MCP server tools | Whatever the registered server exposes | **Per-call approval** |
 
 **The approval gate.** The one-way NDJSON stream cannot pause for a dialog box,
 so consent arrives out of band. When the agent proposes a gated call, the loop
@@ -439,13 +473,44 @@ system prompt so it knows where it may work, and revocable at any time. Cruciall
 paths are re-resolved to their real location before the check, so a symlink or
 junction cannot be used to step outside a granted root.
 
+**Refusing the writes that destroy data.** Containment answers *where* the agent may
+write; it says nothing about whether a permitted write is a good idea. Because the
+file tools offer whole-file writes while reads are truncated at a limit, the two
+compose into a data-loss shape: the model reads the first portion of a large file,
+edits what it saw, writes the result back, and the remainder is gone — an operation
+inside the sandbox, executed exactly as asked, that destroys content nobody ever
+looked at. Two checks refuse it. Every truncated tool result carries a shared
+marker, so content still containing that marker is provably a partial view and is
+rejected outright. And a truncated read is remembered along with the file's real
+size, so a later write-back *shorter* than the partial view it came from is refused
+with an explanation the model can act on. Both refusals are ordinary tool results
+rather than exceptions, so the model can re-read in full and retry. A third case was
+simpler and worse: missing content used to coerce to an empty string, so a malformed
+call truncated its target to zero bytes.
+
 **MCP.** Users can register stdio MCP servers by command line. Their tools are
 namespaced by server (`filesystem_read_file`) and merged into the agent's
-toolset, indistinguishable to the model from builtins. One implementation
-subtlety earned its place in the code comments: each server connection is owned
-by a single dedicated asyncio task, because anyio cancel scopes must be entered
-and exited by the same task; other tasks only use the already-initialized
-session object.
+toolset, indistinguishable to the model from builtins.
+
+Two properties of that merge are load-bearing, and both were originally wrong.
+MCP tools are **gated by default**. A registered server runs with the user's
+privileges and may expose anything — a filesystem server's write, a shell wrapper,
+an API client — and nothing in a tool's schema tells the application which. Leaving
+them ungated made registering a server the one action that silently widened what the
+model could do without asking, which is precisely the promise every other risky tool
+here keeps; treating the whole class as approval-worthy is the only defensible
+default when the capability is unknowable in advance. Second, a name collision can
+no longer shadow a builtin. Merging used to be resolved last-wins by the dispatch
+map, so a server exposing a colliding name would quietly replace the real tool —
+taking its approval gate with it — while the specs, built from the raw list rather
+than the map, offered the model the same name twice. Builtins are now collected
+first and a colliding MCP tool is skipped with a logged warning, so registering a
+server can add capability but never redefine one.
+
+One implementation subtlety earned its place in the code comments: each server
+connection is owned by a single dedicated asyncio task, because anyio cancel scopes
+must be entered and exited by the same task; other tasks only use the
+already-initialized session object.
 
 ## 7. Persistent memory
 
@@ -505,12 +570,31 @@ numpy dependency, and no index to keep consistent. The retrieval quality
 ceiling is lower than a dedicated engine's, but for "chat with my folder of
 notes" it is comfortably sufficient, and the cost is a few dozen lines.
 
-Two properties keep it safe and honest. Indexing is sandboxed to the same
+Three properties keep it safe and honest. Indexing is sandboxed to the same
 allowed roots as the file tools, re-resolving each walked file so a junction or
-symlink cannot pull outside-the-sandbox content into the index. And changing
+symlink cannot pull outside-the-sandbox content into the index. Changing
 the configured embedding model clears the index, because vectors produced by
 different models are not comparable and silently mixing them would return
-plausible-looking nonsense. Retrieval surfaces to the agent as the read-only
+plausible-looking nonsense. And what gets indexed is now *chosen* rather than
+merely encountered.
+
+That last one is worth a paragraph, because the failure was quiet. Pointing the
+indexer at a project folder walked straight into `node_modules`, `.git`, and
+`.venv` — and because collection was path-alphabetical and capped, the budget was
+frequently exhausted on dependencies before reaching anything the user had
+written. The index looked full and returned nothing useful. Dependency and build
+directories are now pruned by name, and everything dropped — pruned folders,
+unreadable files, the overflow past the cap — is reported back rather than silently
+omitted, so a disappointing index explains itself instead of appearing complete.
+
+Decoding was the same class of quiet damage. Both the indexer and the attachment
+endpoint used `decode("utf-8", errors="replace")`, which never fails and substitutes
+U+FFFD for every byte it cannot read. For an attachment that is merely ugly; for the
+index it is permanent, because the mangled text is what gets embedded and the vectors
+carry the damage for as long as the index lives. Decoding now tries a short ordered
+list of encodings and takes the first clean result, with binary detection done on the
+raw bytes — a NUL near the start — because latin-1 will decode a JPEG perfectly
+happily and by the time it is a string the evidence is gone. Retrieval surfaces to the agent as the read-only
 `knowledge_search` tool and is reused, as the next section describes, by deep
 research.
 
@@ -565,15 +649,24 @@ the decision to splice an accepted suggestion into the document at the captured
 selection, which keeps the server a pure text transformer and the document the
 single source of truth in the browser.
 
-Two implementation details reflect hard-won correctness. Autosave is a
+Three implementation details reflect hard-won correctness. Autosave is a
 dirty-flag debounce backed by a stale-proof mirror of the loaded document, and
 it *flushes* rather than merely cancels when the user switches documents or
 leaves the editor — so a fast edit-then-switch cannot silently drop the last
-change. And the text area is locked while a suggestion is pending, because an
+change. The text area is locked while a suggestion is pending, because an
 accepted suggestion is spliced at offsets captured when the run started;
 allowing edits in between would let those offsets drift and land the
-replacement in the wrong place. Both are the kind of bug that only appears
-under real use, and both were closed before the feature shipped.
+replacement in the wrong place.
+
+The third is subtler and is the reason this list grew. A textarea that has lost
+focus keeps reporting the selection it had when focus left, and the browser stops
+rendering it — so clicking Shorten after clicking away acted on a highlighted range
+the user could no longer see, and could not have known was still live. The caret is
+now trusted only while the textarea actually holds focus; otherwise the action falls
+back to the end of the document, and an action that genuinely requires a selection
+says it needs one rather than inventing a target. Selection-dependent controls also
+say which they are, so the distinction is visible before the click rather than
+discovered after it.
 
 ## 11. The blind arena
 
@@ -618,7 +711,15 @@ cookbook never becomes the way models are served or selected. It only helps get
 weights onto disk via Ollama's native API, after which those models appear
 through the ordinary provider and the normal model picker. Downloading is
 therefore Ollama-specific — other backends get recommendations but not one-click
-installs — which is an honest limitation rather than a hidden coupling. Hardware
+installs — which is an honest limitation rather than a hidden coupling.
+
+The catalog is deliberately short, and that is a position rather than an oversight.
+A curated list is only refreshed when a release is cut, so the longer it grows the
+more of it is quietly out of date — a comprehensive-looking directory that is wrong
+in a dozen places is worse than a handful of suggested starting points that are
+right. It now holds roughly one entry per size band and says in as many words that
+it is not a model directory, which keeps the maintenance honest and points the user
+at the provider picker for everything else. Hardware
 detection, which shells out to external processes, runs off the event loop so a
 cookbook page load can never freeze a concurrent chat or research stream.
 
@@ -704,16 +805,22 @@ promise, and the posture is layered.
   cannot bounce the agent onto localhost, the application's own API, or the
   local network.
 - **Model-initiated actions.** The genuinely dangerous capabilities — arbitrary
-  shell, web fetch, and file writes outside the workspace — are each gated per
-  call with no persistent allow. File access is deny-by-default outside the
-  workspace plus explicit grants. Instruction/data separation is currently
-  uneven, and is stated here rather than glossed: the deep-research pipeline
-  fences untrusted source text in explicit begin/end markers, strips counterfeit
-  markers a page may itself contain, and instructs the model to treat the
-  contents as information even where the text claims otherwise. Agent mode does
-  not yet do this — tool output, including fetched pages and retrieved passages,
-  is appended to the conversation unmarked. Giving the agent loop the same
-  fencing is tracked work, not a design position.
+  shell, web fetch, file writes outside the workspace, and every MCP tool — are
+  each gated per call with no persistent allow. File access is deny-by-default
+  outside the workspace plus explicit grants, and writes that would destroy
+  unread content are refused inside it (Section 6).
+- **Instruction/data separation.** Both loops now draw the boundary explicitly.
+  Deep research fences untrusted source text in begin/end markers, strips
+  counterfeit markers a page may itself contain, and instructs the model to treat
+  the contents as information even where the text claims otherwise. Agent mode
+  applies the same treatment to *every* tool result, naming the tool that produced
+  it, so a fetched page or a retrieved passage cannot present itself as something
+  the user said. The fence is applied identically in two places that must not
+  disagree — as results are appended during a live run, and as history is
+  reassembled on replay — because a boundary that exists only in one of them is a
+  boundary the next turn forgets. Fencing happens *before* trimming, so the budget
+  accounts for the markers rather than being silently overrun by them. The previous
+  edition of this paper listed agent-mode fencing as tracked work; it is done.
 - **Static file serving.** The route that serves the single-page application
   resolves each request path against the bundled web assets and refuses anything
   that resolves outside them, falling back to the application shell. Resolution
@@ -735,11 +842,14 @@ promise, and the posture is layered.
   model backends the user configured and to URLs the user, or the user's agent
   under the rules above, requests.
 - **Residual risks.** A granted folder is fully readable and writable by any
-  model the user runs, including a poorly aligned local one; MCP servers run
-  with the user's privileges and are trusted by the act of registration; and
-  the unsigned executable requires a one-time SmartScreen click-through. These
-  are documented rather than hidden, because a local tool's security story is
-  only as good as its honesty about the edges.
+  model the user runs, including a poorly aligned local one. MCP servers run with
+  the user's privileges, so registering one is still an act of trust in the server
+  itself — the per-call gate bounds what it can do unattended, not what it is. Tool
+  arguments are not validated against the schema the tool declares before dispatch,
+  so a malformed call is caught by the tool's own handling rather than at the
+  boundary. And the unsigned executable requires a one-time SmartScreen
+  click-through. These are documented rather than hidden, because a local tool's
+  security story is only as good as its honesty about the edges.
 
 ## 16. Accessibility and theming
 
@@ -830,14 +940,26 @@ assertions were then checked by removing the containment and confirming the
 suite fails, on the principle that a security test that cannot fail is worse
 than no test at all, because it is mistaken for coverage.
 
+Database migration is tested on the same principle, and for the same reason: it is
+the one code path whose failures are unrecoverable. A migration check that only ever
+inspected the `messages` table would have passed on a developer's machine and raised
+on every existing install the moment a column was added to any other table — the
+worst possible distribution of that bug. Migrations are now a versioned list stamped
+into `PRAGMA user_version`, each step written to be safe against a database that
+already has the change, and the file is copied aside before any of them run. A
+database created by a *newer* build is refused rather than read through a schema this
+code does not understand, because the alternative is writing over it.
+
 That property is what makes the suites enforceable rather than merely
 available. A single entry point runs every offline suite alongside the
 frontend's unit tests, lint and typecheck, and continuous integration invokes
 that same entry point on every push and pull request, on Windows because that is
-the platform the application targets. The value is less in the automation than
-in the guarantee it removes from human memory: a regression in any subsystem
-fails the branch that introduced it, rather than waiting for whoever next thinks
-to run the suite by hand.
+the platform the application targets. The suites needing a live model backend sit
+behind a `-Smoke` switch on the same entry point rather than in a separate
+procedure, because a check that requires remembering a different command is a check
+that stops being run. The value is less in the automation than in the guarantee it
+removes from human memory: a regression in any subsystem fails the branch that
+introduced it, rather than waiting for whoever next thinks to run the suite by hand.
 
 The client is covered on the same principle. Adversarial review kept finding its
 defects in one place — the logic that folds a stream of events into a thread and
@@ -852,6 +974,19 @@ message and must be discarded rather than written onto the previous answer.
 Interaction that genuinely depends on the DOM, such as the sidebar's rename
 committing on Enter and blur but discarding on Escape, is driven through the
 rendered component instead.
+
+What every suite above has in common is that it checks *mechanics*: that a cancelled
+run leaves a valid transcript, that a path cannot escape, that a migration does not
+destroy a database. None of them notice if an edit to the agent's system prompt makes
+the model shell out for every file read. That gap is covered separately by a
+behavioural evaluation which runs the real loop against a real model and scores what
+it did — which tools, in what order, how many steps, and whether the final answer
+contains what it should. Because models are not deterministic, a case asserts a
+*shape* rather than an exact transcript, and the result is a score to compare before
+and after a change rather than a pass/fail gate. It is kept out of the automatic
+discovery the other suites use, deliberately, because it costs real model time; it is
+run when the prompts or tool descriptions change, which is exactly when nothing else
+would have noticed.
 
 Beyond the suites, substantial features were put through an adversarial review
 before shipping: independent passes over the diff for correctness, security,
@@ -917,18 +1052,34 @@ serve its interface. That check exists because version 0.7.3 shipped broken:
 everything had been verified from source and the archive's contents inspected,
 but the executable itself was never run.
 
+That check then collided with another safeguard, in a way worth recording because
+the interaction is the general case rather than a one-off. A frozen build refuses to
+run from a temporary or extraction folder, because a user who double-clicks the exe
+straight out of the zip viewer gets a working application whose data lives somewhere
+Windows will later delete. Verification, however, unpacks to `%TEMP%` *on purpose* —
+so the guard fired on the release check and silently disabled the one test that
+catches a broken build. The resolution was an explicit opt-out the verification
+script sets for itself, rather than weakening the guard: a safety check that a
+process legitimately needs to bypass should be bypassed by name, in the open, by the
+one caller entitled to. The guard also compares fully resolved paths on both sides,
+because on a machine where the temp directory is reached through a symlink the
+unresolved comparison meant it never fired at all.
+
 ## 19. Limitations and roadmap
 
 **In plain terms.** What this does not do well yet, written on purpose and in
-detail. Every project has a section like this; most leave it vague. The ones
-that matter to you day to day are grouped first, then the deeper structural
-problems, then what is planned. If you only read one section of this paper to
-judge whether the project is honest, read this one.
+detail. Every project has a section like this; most leave it vague. First the
+fixed boundaries, then what the previous edition of this paper listed as broken and
+has since been fixed, then the things that still bite day to day, then the deeper
+structural problems, then what is planned. If you only read one section of this paper
+to judge whether the project is honest, read this one.
 
 The honest limitations are the mirror image of the design choices. This edition
-states the engineering ones alongside the product ones, because the previous
-edition listed only the latter — and the engineering ones are what a reader
-evaluating the system would actually want to know.
+states the engineering ones alongside the product ones, because an earlier edition
+listed only the latter — and the engineering ones are what a reader evaluating the
+system would actually want to know. It also states, explicitly, which of them have
+been closed, because the failure mode of a section like this is not that it lies but
+that it stops being read against the code.
 
 **Product boundaries.** The application is single-user by intent and Windows-only
 in a deeper sense than packaging: the shell tool spawns PowerShell directly,
@@ -944,26 +1095,42 @@ catalogue entry has since been removed rather than left to promise something the
 program cannot accept. Key storage is plaintext on disk. Model *download*
 management is specific to Ollama.
 
-**Runtime limitations.** These matter more day to day than the boundaries above.
-The context budget is a fixed character count rather than a model-aware token
-count, and in agent mode it is applied once per turn rather than once per step
-(Section 5), so a tool-heavy run can evict the user's original request while it is
-still working on it. The file tools offer read, whole-file write, and list — no
-patch-style edit, no pagination, no search — so changing part of a large file
-means rewriting all of it, which is wasteful and, when a read was truncated, a
-data-loss shape rather than merely an inefficient one. Tool arguments are not
-validated against the schema the tool declares before dispatch. MCP tools inherit
-no approval gate, which makes registering a server the one action that grants the
-model more latitude than the builtin toolset does. And agent mode still lacks the
-instruction/data fencing that deep research already applies (Section 15).
+**Closed since the previous edition.** Five items this section previously listed as
+open are now done, and are named here rather than quietly dropped, because a
+limitations section that only ever grows is as dishonest as one that is vague. The
+context budget is derived from the selected model's context window and re-applied
+every agent step rather than once per turn (Section 5). Agent mode fences tool output
+as data, in both the live loop and on replay (Section 15). MCP tools are gated per
+call, and can no longer shadow a builtin's name (Section 6). `file_write` refuses the
+partial-view write-backs that silently destroyed the unread remainder of a file
+(Section 6). And a run now has a record (below).
 
-**Instrumentation.** A run leaves a transcript but not a record: no run
-identifier, no step timings, no aggregated cost, no behavioral evaluation suite.
-The practical consequence is that the two highest-leverage knobs in the system —
-the agent's system prompt and its tool descriptions — can be changed without any
-signal that behavior moved. Run identity and a small fixed task set to measure
-against are therefore near the top of the list, because they are the prerequisite
-for improving anything else with confidence rather than by impression.
+**Runtime limitations.** These matter more day to day than the boundaries above. The
+file tools offer read, whole-file write, and list — no patch-style edit, no
+pagination, no search — so changing part of a large file still means rewriting all of
+it. The data-loss shape that combination used to produce is now refused rather than
+executed, which converts a silent corruption into a visible inefficiency; it does not
+make the inefficiency go away, and a large file the model must edit in place remains
+the case this toolset serves worst. Tool arguments are not validated against the
+schema the tool declares before dispatch, so a malformed call is caught by the tool's
+own handling rather than at the boundary, and the quality of that error varies by
+tool. The character-per-token ratio used to size the history budget is a heuristic
+standing in for a real tokenizer, so the budget is approximately right rather than
+exactly right — safe in the direction that matters, since it errs toward sending
+less, but not precise.
+
+**Instrumentation.** A run now leaves a record as well as a transcript: a run
+identifier, per-step and per-tool timings, which calls were gated, which returned
+errors, the token total, and the reason the run ended — and a behavioural evaluation
+that scores agent behaviour against a real model when the prompts or tool
+descriptions change (Section 17). That closes the specific gap the previous edition
+named: the two highest-leverage knobs in the system can no longer be changed with no
+signal that behaviour moved. What is still missing is narrower but real. The record
+is a rotating log line rather than queryable storage, so answering "did this get
+slower over the last month" means reading logs, not running a query. There is no cost
+accounting in currency, only tokens. And the evaluation is a score compared by hand,
+not a threshold that fails a branch — which is the right shape while the case set is
+small, and the wrong one once it is trusted enough to gate on.
 
 **Structural.** Agent mode and deep research are two orchestration loops that
 share a persistence helper and little else, so a fix applied to one is not a fix
@@ -972,13 +1139,21 @@ the pinch point for several items above. Both are the kind of change that grows
 more expensive with every feature layered on top, which is an argument for doing
 them earlier than their urgency alone would suggest.
 
-**Direction.** In rough order of value: the runtime limitations above; run
-instrumentation and evaluations; image input carried through the same normalized
-schema; OS-keychain key storage; and an optional local token on the `/v1` hub for
-shared machines. Productivity integrations — email, calendar, notes — remain the
-largest gap relative to a full personal-assistant suite, and each is effectively
-its own subsystem that would be evaluated on its own terms rather than folded in
-for completeness.
+**Direction.** In rough order of value: a patch-style file edit with pagination and
+search, which is the runtime limitation with the widest daily reach; schema
+validation of tool arguments at the dispatch boundary; run context threaded through
+the tool interface, which unblocks several of the above at once; image input carried
+through the same normalized schema; OS-keychain key storage; and an optional local
+token on the `/v1` hub for shared machines. Productivity integrations — email,
+calendar, notes — remain the largest gap relative to a full personal-assistant
+suite, and each is effectively its own subsystem that would be evaluated on its own
+terms rather than folded in for completeness.
+
+A note on how this section is maintained, since it is the one most likely to rot.
+Everything above was checked against the code for this edition rather than carried
+forward, which is how five items came to move into "closed" at once. A roadmap
+inherited unread is worse than no roadmap: it tells the reader the project does not
+know what it has built.
 
 ## 20. Conclusion
 

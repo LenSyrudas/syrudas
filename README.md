@@ -2,56 +2,93 @@
 
 [![CI](https://github.com/LenSyrudas/syrudas/actions/workflows/ci.yml/badge.svg)](https://github.com/LenSyrudas/syrudas/actions/workflows/ci.yml)
 
-A self-hosted AI workspace in the spirit of [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus),
-built around one idea: **any model backend plugs in through a small provider API**.
+A local-first AI workspace for Windows, built on one bet: **the model is the most
+replaceable part of this stack, so it should be the easiest piece to swap.** Every
+backend — local weights or a hosted frontier API — reaches the application through one
+small provider contract, and nothing above that contract knows which model is answering.
+Conversations, keys, documents, memory, and the agent runtime all sit above that seam
+and outlive whatever is behind it.
 
-- **Chat** — streaming responses, markdown + syntax highlighting with a copy button on every
-  code block, conversation history (SQLite) with search and rename, file attachments (drag &
-  drop or 📎: code, text, CSV, JSON, logs, PDFs), regenerate/edit last message, copy any
-  message, per-conversation system prompts with saved presets, temperature/max-token
-  controls, per-reply token counts, markdown export, automatic context-window trimming
-- **Remembers the model per chat** — each conversation records the provider and model it used
-  and restores them when reopened, so a reply never silently comes from a different model
-  than the rest of the thread
-- **Any model** — provider *types* are Python plugins; provider *instances* are configured in the UI.
-  The builtin OpenAI-compatible adapter covers Ollama, LM Studio, llama.cpp server, vLLM,
-  OpenRouter, and OpenAI itself; optional drop-in connectors for **Anthropic (Claude)** and
-  **Google (Gemini)** ship in [plugins/](plugins) — add an API key in Settings to activate
-- **Agent mode** — the model plans and calls tools: PowerShell (per-call approval gate in the UI),
-  file read/write/list (workspace by default, plus folders you grant under
-  Settings → Agent file access), web fetch, web search, and **persistent memory** —
-  durable facts saved across conversations, reviewable and deletable under
-  Settings → Agent memory
-- **Deep Research** — the 🔎 Research button runs a plan → web-search → read-sources →
-  synthesize pipeline and produces a cited Markdown report (with a Sources list) as a
-  normal conversation. Also searches your local Knowledge index. Progress streams live
-- **Model cookbook** — the 📖 Cookbook view detects your CPU/RAM/GPU, rates a curated set of
-  local models as fits-your-GPU / tight / CPU / too-big, and downloads the ones you pick straight
-  into Ollama (streamed progress). Pulled models appear in the normal model picker — the cookbook
-  is additive and never replaces the provider system
-- **Writing editor** — the ✍ Editor view is a document workspace with AI edits: select text
-  and Improve / Shorten / Expand / Fix grammar, Continue from the cursor, or give a custom
-  instruction; suggestions stream in and you accept or reject them. Documents autosave locally
-- **Blind arena** — the ⚔ Arena view pits two models against the same prompt with their
-  names hidden (columns randomized), streams both answers, and lets you vote; votes build
-  a local win/loss leaderboard
-- **Knowledge (local RAG)** — index files and folders (text, code, PDFs) into a local
-  embedding index under Settings → Knowledge; the agent's `knowledge_search` tool quotes
-  from them, so you can chat with documents far bigger than the context window. Works
-  with any provider that serves an embedding model (e.g. Ollama/LM Studio with
-  `nomic-embed-text`); everything stays in the local SQLite database
-- **MCP** — register stdio MCP servers in Settings; their tools merge into agent mode
-- **Themes & accessibility** — light / dark / system appearance plus colour-vision modes
-  (protanopia, deuteranopia, tritanopia, achromatopsia) under Settings → Appearance, a quick
-  theme toggle in the sidebar, and `prefers-reduced-motion` support. Status colours always
-  pair with icons and labels; every control has an accessible name, the lists are
-  keyboard-navigable, and the actions that appear on hover (copy, edit) stay reachable by
-  keyboard, so it works with a screen reader and without a mouse
-- **Picks up where you left off** — the open view and conversation are restored on relaunch
-- Local-first: FastAPI + React, SQLite, no telemetry, keys never leave your machine
+Everything runs on your machine: FastAPI + React, one SQLite file, no account, no
+telemetry, no cloud component. The server binds to loopback and refuses anything else.
 
 **Docs:** [Setup guide](docs/SETUP.md) · [Whitepaper](docs/WHITEPAPER.md)
 ([PDF](docs/Syrudas-AI-Whitepaper.pdf) — regenerate with `scripts\render_whitepaper.py`)
+
+## What it does
+
+- **Chat** — streaming replies, markdown with syntax highlighting and per-block copy,
+  SQLite history with search and rename, file attachments (code, text, CSV, JSON, logs,
+  PDFs), regenerate and edit, per-conversation system prompts with presets,
+  temperature/max-token controls, per-reply token counts, markdown export
+- **Any model** — provider *types* are Python plugins; provider *instances* are
+  configured in the UI. The builtin OpenAI-compatible adapter covers Ollama, LM Studio,
+  llama.cpp server, vLLM, OpenRouter, and OpenAI itself; drop-in connectors for
+  **Anthropic (Claude)** and **Google (Gemini)** ship in [plugins/](plugins)
+- **Agent mode** — the model plans and calls tools: PowerShell (per-call approval),
+  file read/write/list (workspace by default, plus folders you grant), web fetch and
+  search, and **persistent memory** — durable facts carried across conversations,
+  reviewable and deletable in Settings
+- **Knowledge (local RAG)** — index files and folders into a local embedding index; the
+  agent's `knowledge_search` tool quotes from them, so you can work with far more text
+  than fits a context window. Needs any provider serving an embedding model
+  (e.g. `nomic-embed-text`); vectors live in the same SQLite file
+- **Deep Research** — a fixed plan → search → read → synthesize pipeline (deterministic
+  stages, not an agent loop, because that is what small local models can actually do
+  reliably) producing a cited Markdown report as a normal conversation
+- **Writing editor** — a document workspace with AI edits: Improve / Shorten / Expand /
+  Fix grammar on a selection, Continue from the cursor, or a custom instruction.
+  Suggestions stream in and you accept or reject; documents autosave
+- **Blind arena** — two models answer the same prompt with names hidden and columns
+  randomized; you vote, and votes build a local leaderboard
+- **Model cookbook** — detects your CPU/RAM/GPU, rates a curated set of local models as
+  fits / tight / CPU / too big, and pulls the ones you pick into Ollama. Strictly
+  additive: pulled models appear in the ordinary model picker
+- **MCP** — register stdio MCP servers in Settings; their tools merge into agent mode,
+  gated per call and unable to shadow a builtin's name
+- **OpenAI-compatible hub** — every backend you configure here is available to any tool
+  that speaks that dialect, at `/v1`
+- **Themes & accessibility** — light / dark / system, independently of colour-vision
+  modes (protanopia, deuteranopia, tritanopia, achromatopsia), plus `prefers-reduced-motion`.
+  Status is never carried by colour alone — every state also has an icon and a label — and
+  the lists are keyboard-navigable with hover-revealed actions kept focusable. Keyboard
+  operability is solid; screen-reader announcement of streamed replies is not there yet
+
+Smaller things that matter in daily use: each conversation **remembers the provider and
+model it used** and restores them when reopened, so a reply never silently comes from a
+different model than the rest of the thread. History is trimmed to a budget derived from
+the selected model's actual context window rather than one number for everything. The
+open view and conversation are restored on relaunch.
+
+## What it won't do quietly
+
+A local tool that runs commands and writes files earns trust by being explicit about
+failure, not by looking smooth. The things below are load-bearing, not polish:
+
+- **Risky tool calls stop and ask, every time.** Shell, web fetch, file writes outside
+  the workspace, and every MCP tool are gated per call, with the arguments shown.
+  Approvals are single-shot and there is deliberately no "always allow." A denial comes
+  back to the model as an ordinary tool result, so it redirects rather than crashes.
+- **Failed and denied tool calls are shown as failures.** They are not rendered as
+  successes with empty output, and `/v1` returns an error status when a backend fails
+  instead of a 200 with a truncated stream.
+- **Tool output is fenced as data.** Fetched pages and retrieved passages arrive inside
+  explicit delimiters with counterfeit markers stripped, and the system prompt says
+  fenced content is information, never instructions.
+- **`file_write` refuses writes that would destroy data** — content still carrying a
+  truncation marker, or a write-back shorter than the truncated read it came from.
+- **Paths are re-resolved before every check**, so a symlink or junction cannot step
+  outside a granted root — for the file tools, for Knowledge indexing, and for the
+  static routes serving the app's own origin.
+- **The agent's exit paths are closed.** Every announced tool call gets a recorded
+  result on every ending — finished, provider error, step ceiling, denial, cancellation
+  — and reconstruction repairs anything a hard kill still managed to break.
+- **First run tells the truth.** Detection that fails says so rather than presenting an
+  empty list as a finding, on odd hardware and from the wrong folder alike.
+
+Each of these has an offline suite that fails the branch that breaks it. See
+[Whitepaper §15](docs/WHITEPAPER.md) for the full threat model, and §19 for what is
+still weak — written on purpose and in detail.
 
 ## Quickstart
 
@@ -61,48 +98,42 @@ Requirements: Windows, Python 3.13 (`py` launcher), Node.js 20+, and a model bac
 ```powershell
 .\setup.ps1     # venv + pip + npm install + frontend build
 .\run.ps1       # server only, use in a browser at http://127.0.0.1:8040
-.\run_tests.ps1 # backend suites + frontend unit tests/lint/typecheck (what CI runs)
+.\run_tests.ps1 # offline suites + frontend unit tests/lint/typecheck (what CI runs)
 ```
+
+`run_tests.ps1` runs the 22 offline suites — real code paths against fake providers and
+embedders, no network, no GPU, seconds to finish. Add `-Smoke` to also run the suites
+that need a live model backend. `scripts\eval_agent.py` scores agent *behaviour* against
+a real model (which tools, in what order, how many steps) and is kept out of the default
+run because it costs model time.
+
+On first run Syrudas auto-detects a running Ollama or LM Studio and configures it. To add
+more: **Settings → Model providers → Add provider**, pick *OpenAI-compatible*, set the
+Base URL (e.g. `http://localhost:11434/v1` for Ollama). Pick a model in the top bar and
+chat. Toggle **Agent mode** to let the model use tools.
 
 ### Desktop app (one-click exe)
 
-`.\build_exe.ps1` builds **SyrudasAI.exe** (PyInstaller onefile, ~27 MB) into the project
-root. Double-click it and Syrudas opens as a native desktop window (WebView2 via
-pywebview — built into Windows 11, no browser needed); closing the window stops the
-server. If an instance is already running, it just opens a window onto it, and if the
-native webview is unavailable it falls back to your default browser. The exe keeps its
-state (`data\`, `plugins\`) in the folder it lives in, so you can copy it anywhere for a
-fresh portable instance — next to this repo it shares the dev database. Windowed logs go
-to `data\syrudas.log`. Dev equivalents: `python desktop.py` (window) or `.\run.ps1`
-(browser).
-
-On first run Syrudas auto-detects a running Ollama or LM Studio and configures it as a
-provider. To add more: **Settings → Model providers → Add provider**, pick
-*OpenAI-compatible*, set the Base URL (e.g. `http://localhost:11434/v1` for Ollama).
-Pick a model in the top bar and chat. Toggle **Agent mode** to let the model use tools.
-
-### Shipping a release
-
-`.\build_release.ps1` builds the exe (with version metadata from `APP_VERSION` in
-[server/config.py](server/config.py)) and packages `release\SyrudasAI-vX.Y.Z-win64.zip`
-containing the exe, an end-user `README.txt`, and the MIT `LICENSE.txt`. It then runs
-`.\verify_release.ps1`, which unzips the finished archive somewhere clean and actually
-launches it — a build that doesn't start won't pass. To cut a new version: bump
-`APP_VERSION` and the numbers in `version_info.txt`, then rerun the script.
-The exe is unsigned, so recipients may need to click through SmartScreen once.
-
-Full checklist: [docs/RELEASING.md](docs/RELEASING.md).
+`.\build_exe.ps1` builds **SyrudasAI.exe** (PyInstaller onefile) into the project root.
+Double-click it and Syrudas opens as a native window (WebView2 via pywebview — built into
+Windows 11, no browser needed); closing the window stops the server. A second launch
+opens a window onto the running instance, and if the native webview is unavailable it
+falls back to your default browser. The exe keeps its state (`data\`, `plugins\`) beside
+itself, so copying it anywhere gives a fresh portable install — next to this repo it
+shares the dev database. Logs go to `data\syrudas.log`. Dev equivalents:
+`python desktop.py` (window) or `.\run.ps1` (browser).
 
 ## Use your models from other tools
 
-Syrudas is also an **OpenAI-compatible hub at `/v1`**, so every backend you
-configure here is available to anything that speaks that dialect — no per-tool
-API keys, no duplicate configuration. `GET /v1/models` lists every model from
-every configured provider as `<instance>/<model>`; `POST /v1/chat/completions`
-(streaming and non-streaming) routes to the right backend.
+Syrudas is an **OpenAI-compatible hub at `/v1`**, so every backend you configure here is
+available to anything that speaks that dialect — no per-tool API keys, no duplicate
+configuration. `GET /v1/models` lists every model from every configured provider as
+`<instance>/<model>`; `POST /v1/chat/completions` (streaming and non-streaming) routes to
+the right backend, preserving tool calls and usage. These calls are stateless and never
+touch conversation history.
 
-For VS Code, point [Continue](https://continue.dev) at it — you get inline
-completions and edits applied in the editor, which a chat window cannot do:
+For VS Code, point [Continue](https://continue.dev) at it — you get inline completions
+and edits applied in the editor, which a chat window cannot do:
 
 ```yaml
 # ~/.continue/config.yaml
@@ -119,7 +150,8 @@ The same address works for aider, scripts, or any other OpenAI-compatible client
 ## Writing a provider plugin
 
 Drop a `.py` file into `plugins/` (see `plugins/example_echo.py`), restart, and the new
-type appears in Settings. The whole contract:
+type appears in Settings — including in the *packaged* exe, with no rebuild. The whole
+contract:
 
 ```python
 class MyProvider(ModelProvider):
@@ -133,27 +165,46 @@ class MyProvider(ModelProvider):
         # text_delta / tool_call / usage events, ending with done (or error).
 ```
 
-Messages, tools, and stream events are normalized in [server/schemas.py](server/schemas.py) —
-adapters translate at the edge, the rest of the app never knows which backend is talking.
+`embed()` and `check()` are optional; implementing `embed()` makes the provider eligible
+to power Knowledge. Messages, tools, and stream events are normalized in
+[server/schemas.py](server/schemas.py) — adapters translate at the edge, and the rest of
+the app never learns which backend is talking.
 
 ## Layout
 
 ```
 server/            FastAPI backend
   providers/       plugin contract (base.py), registry, openai_compat adapter
-  routes/          REST + streaming chat API (NDJSON over POST /api/chat)
-  tools/           builtin agent tools (shell, files, web)
-  agent.py         agent loop + approval gate
+  routes/          REST + streaming API (NDJSON over POST /api/chat), /v1 hub
+  tools/           builtin agent tools (shell, files, web, memory, knowledge)
+  agent.py         agent loop, approval gate, exit contract
+  chat.py          history assembly, tool-output fencing, context trimming
+  knowledge.py     indexing + embedding retrieval
+  research.py      deep-research pipeline
+  cookbook.py      model catalog + Ollama pulls
+  hardware.py      CPU/RAM/GPU detection
+  runs.py          per-conversation stream coordination
+  security.py      loopback host guard
+  db.py            SQLite schema + migrations
+  onboarding.py    first-run backend detection
   mcp_client.py    stdio MCP servers -> agent tools
-plugins/           drop-in provider plugins
+plugins/           drop-in provider plugins (Anthropic, Gemini, example)
 web/               Vite + React frontend (built to web/dist, served by the backend)
-scripts/           smoke tests (run against a live Ollama)
+scripts/           offline test suites (test_*.py), smoke suites needing a live
+                   backend (smoke_*.py), and eval_agent.py
 data/              SQLite DB + agent workspace (gitignored)
 ```
 
-## Notes
+## Status
 
-- Agent tool calls that run shell commands always pause for approval in the UI.
-- File tools are sandboxed to `data/workspace`.
-- API keys are stored in the local SQLite DB and masked in API responses.
-- Tool calling requires a model that supports it (e.g. `llama3.1:8b`; `gemma3` does not).
+Version 1.0.0, and single-maintainer by design. Windows-only in a deeper sense than
+packaging: the shell tool spawns PowerShell, hardware detection reads WMI, the desktop
+shell targets WebView2. Text-only — a vision model can be selected but never fed an
+image. API keys are stored in plaintext in the local database and masked in every API
+response, so the data folder is as sensitive as the keys in it. The file tools do
+whole-file writes with no patch-style edit, so editing part of a large file means
+rewriting all of it. Tool arguments aren't validated against their declared schema
+before dispatch.
+
+[Whitepaper §19](docs/WHITEPAPER.md) is the full accounting, including the structural
+problems and what is planned.
