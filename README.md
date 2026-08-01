@@ -14,7 +14,6 @@ telemetry, no cloud component. The server binds to loopback and refuses anything
 
 **Docs:** [Setup guide](docs/SETUP.md) · [Whitepaper](docs/WHITEPAPER.md)
 ([PDF](docs/Syrudas-AI-Whitepaper.pdf) — regenerate with `scripts\render_whitepaper.py`)
-· [Releasing](docs/RELEASING.md)
 
 ## What it does
 
