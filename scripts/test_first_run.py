@@ -136,6 +136,35 @@ def test_running_from_temp_is_false_when_not_frozen():
     print("source checkout: the temp-folder guard stays out of the way OK")
 
 
+def test_the_temp_guard_catches_a_frozen_build_and_can_be_opted_out():
+    """It must refuse a zip-viewer launch AND let verify_release through.
+
+    Getting only the first half right silently disabled the check that catches
+    a broken release, which is what actually happened when this was added.
+    """
+    import os
+    import tempfile
+    frozen, root = config.FROZEN, config.PROJECT_ROOT
+    config.FROZEN = True
+    # Deliberately built from the UNRESOLVED temp dir, which is how a real
+    # launch path arrives. On a Windows CI runner the two spellings differ
+    # (8.3 short names under RUNNER~1), and comparing them unresolved is what
+    # made the guard silently not fire there.
+    config.PROJECT_ROOT = Path(tempfile.gettempdir()) / "Temp1_SyrudasAI.zip" / "SyrudasAI"
+    try:
+        assert config.running_from_temp() is True, "a zip-viewer launch must be refused"
+        os.environ[config.ALLOW_TEMP_ENV] = "1"
+        try:
+            assert config.running_from_temp() is False,                 "verify_release unpacks to %TEMP% on purpose and must be able to opt out"
+        finally:
+            os.environ.pop(config.ALLOW_TEMP_ENV, None)
+        config.PROJECT_ROOT = Path("C:/Users/someone/SyrudasAI")
+        assert config.running_from_temp() is False, "a normal install is unaffected"
+    finally:
+        config.FROZEN, config.PROJECT_ROOT = frozen, root
+    print("temp guard: refuses a zip launch, opts out for verification OK")
+
+
 async def main() -> None:
     try:
         await test_a_running_backend_with_no_models_says_so()
@@ -148,6 +177,7 @@ async def main() -> None:
         test_no_hardware_info_is_still_unknown()
         test_ensure_dirs_reports_where_it_failed()
         test_running_from_temp_is_false_when_not_frozen()
+        test_the_temp_guard_catches_a_frozen_build_and_can_be_opted_out()
     finally:
         await db.close_db()
     print("\nALL FIRST RUN TESTS PASSED")

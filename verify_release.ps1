@@ -53,6 +53,12 @@ function Get-Json($path) {
 }
 
 function Start-App {
+    # The packaged app refuses to run from a temp folder, because launching it
+    # straight out of Explorer's zip viewer gives a session whose data Windows
+    # later deletes. This script unpacks to %TEMP% on purpose, so it opts out -
+    # otherwise the guard silently disables the one check that catches a broken
+    # build, which is exactly how 0.7.3 shipped.
+    $env:SYRUDAS_ALLOW_TEMP = "1"
     $p = Start-Process -FilePath (Join-Path $app "SyrudasAI.exe") -WorkingDirectory $app -PassThru
     # wait for the server rather than sleeping a fixed guess
     for ($i = 0; $i -lt 45; $i++) {

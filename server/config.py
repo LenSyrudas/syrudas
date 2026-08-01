@@ -1,4 +1,5 @@
 """Paths, port, and simple settings for Syrudas AI."""
+import os
 import sys
 from pathlib import Path
 
@@ -61,18 +62,33 @@ def ensure_dirs() -> None:
                 f"({exc})") from exc
 
 
+ALLOW_TEMP_ENV = "SYRUDAS_ALLOW_TEMP"
+
+
 def running_from_temp() -> bool:
     """True when a frozen build is running out of a temp/extraction folder.
 
     Double-clicking the exe straight from Explorer's zip viewer gives a working
     session whose data folder Windows deletes later, taking the conversations
     with it.
+
+    SYRUDAS_ALLOW_TEMP opts out, and exists because this guard broke the one
+    check that matters: verify_release.ps1 unpacks the finished archive into
+    %TEMP% and launches it, which is precisely the shape being refused. Without
+    an escape hatch, adding this protection would have silently disabled the
+    test that catches a broken build - trading a rare data-loss case for the
+    thing that stopped 0.7.3 shipping broken.
     """
-    if not FROZEN:
+    if not FROZEN or os.environ.get(ALLOW_TEMP_ENV):
         return False
     import tempfile
     try:
-        return PROJECT_ROOT.is_relative_to(Path(tempfile.gettempdir()).resolve())
+        # BOTH sides resolved. Comparing an unresolved root against a resolved
+        # temp path meant the guard silently never fired wherever the two are
+        # spelled differently - Windows 8.3 short names being the usual cause,
+        # e.g. a TEMP under RUNNER~1 or a profile with a space in it.
+        return PROJECT_ROOT.resolve().is_relative_to(
+            Path(tempfile.gettempdir()).resolve())
     except (OSError, ValueError):
         return False
 
