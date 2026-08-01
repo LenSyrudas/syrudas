@@ -315,9 +315,11 @@ export default function ChatView({
         setDetectMsg(`Found ${res.added.map((p) => p.name).join(' and ')}.`)
         onProvidersChanged()
       } else {
-        setDetectMsg(
-          'Nothing answered on the usual ports. Start Ollama (or LM Studio) and try again.',
-        )
+        // "nothing added" has three causes and this used to report the least
+        // likely one. The server now says which, so a backend that is running
+        // but has no models pulled is told to pull one rather than to start
+        // the thing it can already see running.
+        setDetectMsg(res.hint)
       }
     } catch (e) {
       setDetectMsg(String(e))
@@ -354,7 +356,8 @@ export default function ChatView({
                 ? agentMode
                   ? 'Agent mode: the model can plan and use tools. Shell commands, web fetches and writes outside the workspace wait for your approval.'
                   : 'Ask anything. Swap models any time from the picker above.'
-                : 'No model backend yet. Start Ollama or LM Studio, then look again — or add a provider by hand in Settings.'}
+                : (detectMsg ||
+                    'No model backend yet. Start Ollama or LM Studio, then look again — or add a provider by hand in Settings.')}
             </p>
             {!canSend && (
               <div className="setup-actions">

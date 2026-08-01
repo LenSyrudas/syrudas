@@ -43,10 +43,28 @@ def wait_for_server(timeout: float = 30.0) -> bool:
     return False
 
 
+def _fatal(message: str) -> None:
+    """Say something the user can act on, even with no console attached."""
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, message, "Syrudas AI", 0x10)
+    except Exception:
+        print(message, file=sys.stderr)
+
+
 def main() -> None:
     _ensure_std_streams()
     logging.basicConfig(level=logging.INFO)
     log = logging.getLogger("syrudas.desktop")
+
+    from server.config import running_from_temp
+    if running_from_temp():
+        _fatal(
+            "Syrudas is running from a temporary folder.\n\n"
+            "It looks like it was launched from inside the zip. Extract the "
+            "SyrudasAI folder somewhere permanent first - otherwise Windows "
+            "will delete your conversations along with the temp folder.")
+        return
 
     server = None
     server_thread = None

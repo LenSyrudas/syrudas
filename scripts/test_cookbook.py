@@ -60,8 +60,16 @@ def test_fit_ratings():
     assert rate_fit(hw(ram_gb=64), small)[0] == "cpu"
     # no GPU, not enough RAM -> too big
     assert rate_fit(hw(ram_gb=8), big)[0] == "too_big"
-    # estimated/capped VRAM that's smaller than needed -> unknown, not a false "too big"
-    assert rate_fit(hw(gpus=[gpu(4, capped=True)], ram_gb=8), big)[0] == "unknown"
+    # Estimated/capped VRAM that looks too small no longer ends the judgement.
+    # It used to return "unknown", which meant an integrated GPU produced a page
+    # of shrugs - strictly worse than reporting no GPU at all, which at least
+    # got RAM-based answers. Now it falls through to RAM and carries the caveat.
+    capped = rate_fit(hw(gpus=[gpu(4, capped=True)], ram_gb=8), big)
+    assert capped[0] == "too_big", capped          # 8 GB RAM really is too small
+    assert "could not be measured" in capped[1], capped[1]
+    roomy = rate_fit(hw(gpus=[gpu(4, capped=True)], ram_gb=64), big)
+    assert roomy[0] == "cpu", roomy                # same GPU, enough RAM to answer
+    assert "could not be measured" in roomy[1], roomy[1]
     # no hardware info at all -> unknown
     assert rate_fit({"gpus": [], "ram": {"total_mb": None}}, small)[0] == "unknown"
     print("fit ratings: good/tight/cpu/too_big/unknown across GPU+RAM combos OK")

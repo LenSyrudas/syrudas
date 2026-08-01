@@ -42,9 +42,42 @@ CHARS_PER_TOKEN = 3.5
 RESPONSE_RESERVE_TOKENS = 1_024
 TOOL_SCHEMA_RESERVE_TOKENS = 1_500
 
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-DEFAULT_WORKSPACE.mkdir(parents=True, exist_ok=True)
-PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
+def ensure_dirs() -> None:
+    """Create the folders the app writes to, reporting where it failed.
+
+    These ran at import time, so installing under Program Files produced a
+    PyInstaller traceback and no log - because creating the log directory was
+    the thing that failed. Calling it explicitly lets the caller set up logging
+    first and say something useful.
+    """
+    for d in (DATA_DIR, DEFAULT_WORKSPACE, PLUGINS_DIR):
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise RuntimeError(
+                f"Syrudas cannot write to {d}.\n\n"
+                "It keeps its data next to the executable, so it needs a folder "
+                "you can write to - your Documents or Desktop, not Program Files.\n\n"
+                f"({exc})") from exc
+
+
+def running_from_temp() -> bool:
+    """True when a frozen build is running out of a temp/extraction folder.
+
+    Double-clicking the exe straight from Explorer's zip viewer gives a working
+    session whose data folder Windows deletes later, taking the conversations
+    with it.
+    """
+    if not FROZEN:
+        return False
+    import tempfile
+    try:
+        return PROJECT_ROOT.is_relative_to(Path(tempfile.gettempdir()).resolve())
+    except (OSError, ValueError):
+        return False
+
+
+ensure_dirs()
 
 # carry over a database created before the rename to Syrudas AI
 _legacy_db = DATA_DIR / "argos.db"

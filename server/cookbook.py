@@ -99,23 +99,32 @@ def rate_fit(hw: dict, entry: dict) -> tuple[str, str]:
 
     if vram is not None:
         if vram_est and need_vram > vram:
-            return ("unknown",
-                    "Your GPU's VRAM couldn't be measured exactly - this may or may not fit.")
+            # An estimated VRAM figure that looks too small used to end here,
+            # returning "unknown" for every entry - so an integrated GPU with
+            # 32 GB of system RAM got a page of shrugs, strictly worse than a
+            # machine reporting no GPU at all, which at least got RAM answers.
+            # Fall through to the RAM branch and carry the caveat instead.
+            fit, reason = _rate_on_ram(ram, entry, vram=vram)
+            return (fit, f"{reason} (Your GPU's VRAM could not be measured exactly.)")
         if need_vram <= vram * 0.9:
             return ("good", "Fits comfortably on your GPU.")
         if need_vram <= vram:
             return ("tight", "Fits on your GPU with little headroom.")
         # too big for the GPU alone - fall through to CPU/RAM
 
-    if ram is not None:
-        if entry["min_ram_gb"] <= ram * 0.7:
-            where = "with CPU offload" if vram else "on the CPU"
-            return ("cpu", f"Runs {where} - slower than a model that fits your GPU.")
-        if entry["min_ram_gb"] <= ram:
-            return ("tight", "Will run but may be slow or memory-tight.")
-        return ("too_big", "Likely too large for this machine's memory.")
+    return _rate_on_ram(ram, entry, vram=vram)
 
-    return ("unknown", "Not enough hardware info to judge fit.")
+
+def _rate_on_ram(ram: float | None, entry: dict, vram: float | None) -> tuple[str, str]:
+    """Judge on system memory - the answer whenever the GPU cannot decide it."""
+    if ram is None:
+        return ("unknown", "Not enough hardware info to judge fit.")
+    if entry["min_ram_gb"] <= ram * 0.7:
+        where = "with CPU offload" if vram else "on the CPU"
+        return ("cpu", f"Runs {where} - slower than a model that fits your GPU.")
+    if entry["min_ram_gb"] <= ram:
+        return ("tight", "Will run but may be slow or memory-tight.")
+    return ("too_big", "Likely too large for this machine's memory.")
 
 
 def _installed_match(entry_name: str, installed: list[str]) -> bool:
