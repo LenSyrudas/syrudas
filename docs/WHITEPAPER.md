@@ -235,7 +235,7 @@ from the chat view to the deep-research synthesizer, handles partial output the
 same way.
 
 **Discovery by drop-in.** The registry imports its builtin adapters statically,
-because a PyInstaller bundle is invisible to `pkgutil`'s directory
+because a PyInstaller onefile bundle is invisible to `pkgutil`'s directory
 scanning and dynamic-only imports would never be packaged at all. On top of
 that, it scans a user-writable `plugins/` folder next to the executable at
 startup. The consequence is unusual and, for a local tool, delightful: a user
@@ -1007,29 +1007,9 @@ is installed into Windows itself, so moving it somewhere else is dragging a
 folder, and removing it is deleting one.
 
 The release artifact is a portable zip holding four things: the PyInstaller
-application (windowed, over WebView2) as an executable plus the `_internal`
-runtime folder beside it, an end-user README, the MIT license, and the optional
-provider connectors. It deliberately holds nothing else.
-
-The choice of `--onedir` over `--onefile` is worth stating, because the single
-file is the more obvious answer and was the original one. A onefile build is a
-self-extracting archive: each launch unpacks the entire Python runtime into a
-temporary directory and executes from there. That costs start-up time on every
-run, and — more importantly for something distributed to strangers — it is
-behaviourally indistinguishable from how a great deal of malware is packaged.
-Antivirus heuristics are tuned accordingly, and an unsigned self-extractor with
-no download reputation is the worst case: Microsoft's machine-learning
-classifiers flag exactly this shape, under names like `Wacatac.B!ml`, on files
-that are entirely benign. Onedir lays the runtime out as ordinary files that are
-read in place, so there is no extraction step to resemble. The cost is that the
-executable is no longer self-contained — it will not start without `_internal`
-beside it, which the end-user README says in as many words and the release
-verification checks before it launches anything. That cost is close to zero
-here, because the artifact was already a folder inside a zip; a user who was
-going to keep a folder together is not inconvenienced by it holding one more
-thing. None of this makes a false positive impossible. It removes the specific
-trait most likely to cause one, and the real fix — a code-signing certificate —
-remains unbought. Earlier editions also bundled this whitepaper and the setup guide, and
+onefile executable (windowed, over WebView2), an end-user README, the MIT
+license, and the optional provider connectors. It deliberately holds nothing
+else. Earlier editions also bundled this whitepaper and the setup guide, and
 both were wrong for the person receiving them: the setup guide was Markdown
 renamed `.txt`, so opening it produced a screenful of syntax, and half of it
 described building from source to somebody holding a finished executable. Both
