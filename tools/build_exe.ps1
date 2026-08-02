@@ -3,7 +3,11 @@
 # PowerShell 5.1 otherwise turns harmless stderr log lines (vite warnings,
 # PyInstaller INFO) into terminating errors when streams are redirected.
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+# This script lives in tools\ but every path below - the venv, web\, dist\,
+# desktop.py - is relative to the repository root, so $root is this file's
+# grandparent and the location is set there. Anything that genuinely belongs to
+# tools\ is spelled with the prefix explicitly.
+$root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $root
 
 # Same fallback run_tests.ps1 uses: a git worktree, a CI checkout, or a plain
@@ -31,7 +35,7 @@ if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 # and it costs a self-contained exe. Do not switch again on reasoning alone;
 # the fix for false positives is a code-signing certificate.
 Write-Host "Building exe..."
-cmd /c "$python -m PyInstaller --noconfirm --clean --onefile --windowed --name SyrudasAI --icon icon.ico --version-file version_info.txt --add-data ""web/dist;web/dist"" --collect-submodules uvicorn --collect-all webview --exclude-module PIL desktop.py 2>&1"
+cmd /c "$python -m PyInstaller --noconfirm --clean --onefile --windowed --name SyrudasAI --icon tools\icon.ico --version-file tools\version_info.txt --add-data ""web/dist;web/dist"" --collect-submodules uvicorn --collect-all webview --exclude-module PIL desktop.py 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 
 Copy-Item dist\SyrudasAI.exe $root -Force

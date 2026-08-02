@@ -11,7 +11,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+# In tools\, but operates on the repository root - see the note in build_exe.ps1.
+$root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $root
 
 $match = Select-String -Path "server\config.py" -Pattern 'APP_VERSION = "([^"]+)"'
@@ -19,7 +20,7 @@ if (-not $match) { throw "APP_VERSION not found in server\config.py" }
 $version = $match.Matches[0].Groups[1].Value
 Write-Host "Packaging Syrudas AI v$version"
 
-& .\build_exe.ps1
+& .\tools\build_exe.ps1
 if (-not (Test-Path "SyrudasAI.exe")) { throw "build_exe.ps1 did not produce SyrudasAI.exe" }
 
 $stage = Join-Path $env:TEMP "syrudas-release-stage"
@@ -84,8 +85,8 @@ Write-Host "Release ready: $root\$zip"
 
 if ($SkipVerify) {
     Write-Host ""
-    Write-Host "Skipped artifact verification (-SkipVerify). Run .\verify_release.ps1 before shipping." -ForegroundColor Yellow
+    Write-Host "Skipped artifact verification (-SkipVerify). Run .\tools\verify_release.ps1 before shipping." -ForegroundColor Yellow
 } else {
-    & .\verify_release.ps1 -Zip $zip
+    & .\tools\verify_release.ps1 -Zip $zip
     if ($LASTEXITCODE -ne 0) { throw "release verification failed - do not ship this build" }
 }

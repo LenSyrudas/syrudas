@@ -27,9 +27,9 @@ Everything ships from `master`, and CI must be green on it. Never tag a branch.
 Two files, kept in sync:
 
 - `server/config.py` → `APP_VERSION`
-- `version_info.txt` → `filevers`, `prodvers`, `FileVersion`, `ProductVersion`
+- `tools\version_info.txt` → `filevers`, `prodvers`, `FileVersion`, `ProductVersion`
 
-Use semver: patch for fixes, minor for features. `build_release.ps1` reads
+Use semver: patch for fixes, minor for features. `tools\build_release.ps1` reads
 `APP_VERSION` and names the archive from it, so this drives everything else.
 
 ### 3. Update what users read
@@ -46,7 +46,7 @@ Skip anything the release doesn't touch, but check each one:
 
 ```powershell
 .\run_tests.ps1        # backend suites + frontend unit tests, lint, typecheck
-.\build_release.ps1    # builds the exe, zips it, then verifies the archive
+.\tools\build_release.ps1    # builds the exe, zips it, then verifies the archive
 ```
 
 `build_release.ps1` calls `verify_release.ps1` automatically. That script
@@ -58,7 +58,7 @@ would test the instance you already have open and pass on someone else's
 output.
 
 `-SkipVerify` exists for when you genuinely can't free the port. If you use it,
-run `.\verify_release.ps1` yourself before shipping.
+run `.\tools\verify_release.ps1` yourself before shipping.
 
 ### 5. Tag, from master
 

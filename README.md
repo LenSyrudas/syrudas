@@ -130,7 +130,7 @@ chat. Toggle **Agent mode** to let the model use tools.
 
 ### Desktop app (one-click exe)
 
-`.\build_exe.ps1` builds **SyrudasAI.exe** (PyInstaller onefile) into the project root.
+`.\tools\build_exe.ps1` builds **SyrudasAI.exe** (PyInstaller onefile) into the project root.
 Double-click it and Syrudas opens as a native window (WebView2 via pywebview — built into
 Windows 11, no browser needed); closing the window stops the server. A second launch
 opens a window onto the running instance, and if the native webview is unavailable it
@@ -208,7 +208,15 @@ plugins/           drop-in provider plugins (Anthropic, Gemini, example)
 web/               Vite + React frontend (built to web/dist, served by the backend)
 scripts/           offline test suites (test_*.py), smoke suites needing a live
                    backend (smoke_*.py), and eval_agent.py
+tools/             packaging: build_exe, build_release, verify_release, plus the
+                   exe's icon and version resource. Not server/tools, which is
+                   the agent's toolset - these are the build scripts
 data/              SQLite DB + agent workspace (gitignored)
+
+The three scripts you run day to day stay at the root: setup.ps1, run.ps1,
+run_tests.ps1. Everything under tools/ is only needed when cutting a release,
+and each of those scripts sets its working directory to the repository root, so
+they behave identically wherever you invoke them from.
 ```
 
 ## Status
