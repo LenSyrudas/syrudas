@@ -339,12 +339,12 @@ Layout reference is in [README.md](../README.md); design rationale in
 ## 15. Building the exe and releases
 
 ```powershell
-.\build_exe.ps1       # -> SyrudasAI.exe in the project root
-.\build_release.ps1   # -> release\SyrudasAI-vX.Y.Z-win64.zip (exe + README + license)
+.\tools\build_exe.ps1       # -> SyrudasAI.exe in the project root
+.\tools\build_release.ps1   # -> release\SyrudasAI-vX.Y.Z-win64.zip (exe + README + license)
 ```
 
 To cut a new version: bump `APP_VERSION` in `server\config.py` **and** the
-matching numbers in `version_info.txt`, then run `build_release.ps1`.
+matching numbers in `tools\version_info.txt`, then run `tools\build_release.ps1`.
 
 Notes:
 - The exe is unsigned; recipients will click through SmartScreen once.

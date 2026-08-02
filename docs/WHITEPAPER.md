@@ -1045,7 +1045,7 @@ Version identity flows from `APP_VERSION` into the health endpoint, the UI
 footer, and — as of this revision — the cover of this document, substituted at
 render time rather than typed. One duplicate remains, and it is worth naming
 because the previous edition of this paper claimed the opposite: the Windows file
-properties of the executable are read from a separate `version_info.txt` that is
+properties of the executable are read from a separate `tools/version_info.txt` that is
 maintained by hand, so cutting a release edits two files rather than one. Until
 that file is generated from `APP_VERSION` as well, the two can drift — and a
 shipped PDF whose cover disagreed with the build it accompanied is exactly what

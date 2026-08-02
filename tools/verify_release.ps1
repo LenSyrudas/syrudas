@@ -7,14 +7,15 @@
 # empty model picker reached users. Building without running the artifact is the
 # specific mistake this guards.
 #
-#   .\verify_release.ps1                 # verify the zip matching APP_VERSION
-#   .\verify_release.ps1 -Zip path.zip   # verify a specific archive
+#   .\tools\verify_release.ps1                 # verify the zip matching APP_VERSION
+#   .\tools\verify_release.ps1 -Zip path.zip   # verify a specific archive
 param(
     [string]$Zip = ""
 )
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+# In tools\, but operates on the repository root - see the note in build_exe.ps1.
+$root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $root
 
 $match = Select-String -Path "server\config.py" -Pattern 'APP_VERSION = "([^"]+)"'
