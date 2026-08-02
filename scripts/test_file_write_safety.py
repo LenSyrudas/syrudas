@@ -83,7 +83,7 @@ async def test_the_marker_guard_stands_on_its_own():
     target = big_file("big4.md")
     original = target.stat().st_size
     seen = await READ.run({"path": "big4.md"})
-    files_mod._truncated_reads.clear()  # as if the read happened before a restart
+    files_mod._read_progress.clear()  # as if the read happened before a restart
 
     result = await WRITE.run({"path": "big4.md", "content": seen})
 
@@ -156,6 +156,65 @@ async def test_a_different_path_is_unaffected():
     print("writing a partial view to a different path: allowed OK")
 
 
+async def test_paging_through_a_large_file_then_editing_it():
+    """The case that was impossible: read a big file whole, edit it, write it back.
+
+    Before paging existed this could not be done at all. file_read only ever
+    returned the first READ_LIMIT characters, and file_write refused anything
+    shorter than the real file - telling the model to "re-read the file in full",
+    which no argument allowed. A file over the limit was permanently uneditable
+    and the advice was a loop rather than a way out.
+    """
+    target = big_file("editme.md")
+    original = target.read_text("utf-8")
+    total = len(original)
+    assert total > READ_LIMIT, "precondition: the file must exceed one read"
+
+    parts, offset, guard = [], 0, 0
+    while True:
+        guard += 1
+        assert guard < 100, "paging did not terminate"
+        out = await READ.run({"path": "editme.md", "offset": offset})
+        assert not out.startswith("Error:"), out
+        if TRUNCATION_MARK in out:
+            body, _, rest = out.partition(f"\n{TRUNCATION_MARK}")
+            parts.append(body)
+            offset = int(rest.split(" of ")[0].split("-")[-1])
+            continue
+        parts.append(out.split("\n[Characters ")[0])
+        break
+
+    whole = "".join(parts)
+    assert whole == original, \
+        f"paging did not reproduce the file: {len(whole)} vs {total} chars"
+
+    edited = "\n".join(whole.split("\n")[:-50]).replace("line 00000", "EDITED")
+    assert len(edited) < total, "precondition: the edit must shrink the file"
+
+    result = await WRITE.run({"path": "editme.md", "content": edited})
+
+    assert not result.startswith("Error:"), \
+        f"a shorter write after seeing the WHOLE file must be allowed: {result}"
+    assert target.read_text("utf-8") == edited
+    print(f"paged {total:,} chars, edited down to {len(edited):,}, write allowed OK")
+
+
+async def test_a_hole_in_coverage_still_refuses():
+    """Paging must be contiguous. Skipping ahead leaves genuinely unseen content."""
+    target = big_file("holey.md")
+    total = len(target.read_text("utf-8"))
+
+    await READ.run({"path": "holey.md", "offset": 0, "limit": 100})
+    await READ.run({"path": "holey.md", "offset": total - 100})  # jumped the middle
+
+    result = await WRITE.run({"path": "holey.md", "content": "x" * 200})
+
+    assert result.startswith("Error:"), f"a jump left a hole; expected refusal: {result}"
+    assert "you have seen 100 of" in result, result
+    assert len(target.read_text("utf-8")) == total
+    print("non-contiguous paging: coverage not credited, refused OK")
+
+
 async def main():
     try:
         await test_truncated_readback_is_refused()
@@ -166,6 +225,8 @@ async def main():
         await test_ordinary_writes_still_work_and_report_the_change()
         await test_a_full_read_clears_the_record()
         await test_a_different_path_is_unaffected()
+        await test_paging_through_a_large_file_then_editing_it()
+        await test_a_hole_in_coverage_still_refuses()
         print("\nALL FILE WRITE SAFETY TESTS PASSED")
 
     finally:
