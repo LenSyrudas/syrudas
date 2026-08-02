@@ -22,6 +22,14 @@ Write-Host "Installing build dependencies..."
 cmd /c "$python -m pip install --quiet pyinstaller pywebview 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 
+# --onefile, and --onedir has already been tried. A onefile build is a
+# self-extracting archive, which is the shape antivirus heuristics distrust, so
+# v1.0.1 shipped as --onedir to remove that trait. Defender quarantined the
+# v1.0.1 zip two seconds after it downloaded (Trojan:Script/Wacatac.B!ml) - a
+# verdict the onefile v1.0.0 zip never got. One observation each way is not a
+# controlled result, but onedir demonstrably did not buy what it was meant to,
+# and it costs a self-contained exe. Do not switch again on reasoning alone;
+# the fix for false positives is a code-signing certificate.
 Write-Host "Building exe..."
 cmd /c "$python -m PyInstaller --noconfirm --clean --onefile --windowed --name SyrudasAI --icon icon.ico --version-file version_info.txt --add-data ""web/dist;web/dist"" --collect-submodules uvicorn --collect-all webview --exclude-module PIL desktop.py 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }

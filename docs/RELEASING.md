@@ -97,6 +97,17 @@ to the real thing.
 - **The exe is unsigned**, so SmartScreen shows "Windows protected your PC" on
   first run. Users have to click *More info → Run anyway*. Fixing this means
   buying a code-signing certificate.
+- **Antivirus false positives happen, and repackaging does not fix them.**
+  Defender's ML classifier flags this project's archives as
+  `Trojan:Script/Wacatac.B!ml` — the release zip, and also the plain
+  source-code zip, which contains no binary at all. That last part is the tell:
+  the verdict tracks reputation and the general shape of the repository, not
+  how the exe is built. v1.0.1 was published as a PyInstaller `--onedir` build
+  specifically to remove the self-extraction pattern that most reliably trips
+  these heuristics; it was quarantined two seconds after download, and v1.0.2
+  reverted to `--onefile`. **Do not spend another release on this.** Report the
+  false positive at <https://www.microsoft.com/en-us/wdsi/filesubmission>
+  (free, a few days, clears it for everyone) and buy the certificate.
 - **The port is fixed at 8040.** A second copy will attach to the running
   instance instead of starting its own, which can look like the new version
   "did nothing". Worth remembering when testing an upgrade.

@@ -3,7 +3,7 @@ import os
 import sys
 from pathlib import Path
 
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 
 FROZEN = bool(getattr(sys, "frozen", False))
 

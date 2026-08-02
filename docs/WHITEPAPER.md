@@ -1017,6 +1017,23 @@ now live in the repository, linked from the README. The decision was not about
 size — they were 74 KB inside a 29 MB archive — but about what the folder looks
 like when the window opens, and how obvious the thing to double-click is.
 
+The onefile choice was tested against its main alternative and kept, and the
+experiment is recorded because the reasoning against it is genuinely good. A
+onefile build is a self-extracting archive: it unpacks its runtime into a
+temporary directory on every launch, which is slower and is behaviourally what
+a great deal of malware does. Antivirus heuristics are tuned accordingly, and
+this project's archives are in fact flagged — Microsoft's classifier returns
+`Trojan:Script/Wacatac.B!ml` on them. So v1.0.1 shipped as a `--onedir` build,
+laying the runtime out as ordinary files with no extraction step to resemble.
+It was quarantined two seconds after it finished downloading, and v1.0.2
+reverted to onefile. The evidence is thin in both directions — one download
+each way, on a classifier weighted heavily toward reputation, which a
+day-old file does not have. What settles it is a detail that no packaging
+change can touch: the repository's plain **source** zip, containing no
+executable at all, draws the same verdict. The signal is not the shape of the
+binary. It is an unsigned, unknown publisher, and the answer to that is a
+code-signing certificate rather than another packaging experiment.
+
 Everything mutable lives beside the executable, so an installation is trivially
 copyable, movable, and deletable, and extracting a newer release over an older
 folder leaves the data untouched. On first run with an empty database, the
