@@ -226,9 +226,11 @@ packaging: the shell tool spawns PowerShell, hardware detection reads WMI, the d
 shell targets WebView2. Text-only — a vision model can be selected but never fed an
 image. API keys are stored in plaintext in the local database and masked in every API
 response, so the data folder is as sensitive as the keys in it. The file tools do
-whole-file writes with no patch-style edit, so editing part of a large file means
-rewriting all of it. Tool arguments aren't validated against their declared schema
-before dispatch.
+whole-file writes with no patch-style edit and no search, so changing one line of a
+large file means paging through it and writing all of it back. Tool arguments are
+checked for shape before dispatch — malformed JSON, missing required keys, unknown
+keys — but not for type, so a wrong-typed value fails inside the tool instead of at
+the boundary.
 
 [Whitepaper §19](docs/WHITEPAPER.md) is the full accounting, including the structural
 problems and what is planned.

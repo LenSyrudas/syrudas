@@ -484,9 +484,29 @@ marker, so content still containing that marker is provably a partial view and i
 rejected outright. And a truncated read is remembered along with the file's real
 size, so a later write-back *shorter* than the partial view it came from is refused
 with an explanation the model can act on. Both refusals are ordinary tool results
-rather than exceptions, so the model can re-read in full and retry. A third case was
+rather than exceptions, so the model can adjust and retry. A third case was
 simpler and worse: missing content used to coerce to an empty string, so a malformed
 call truncated its target to zero bytes.
+
+That pair of guards was correct and, on its own, produced a worse bug than the one it
+prevented. `file_read` accepted only a path, so it returned the first `READ_LIMIT`
+characters and nothing else, ever; the write guard then refused anything shorter than
+the real file. Between them, **no file larger than the read limit could be edited at
+all** — and the refusal told the model to "re-read the file in full first", which no
+argument allowed it to do. A capable model would try, fail identically, and keep
+trying until the repeat-guard cut it off. The safety property held perfectly while
+the capability it guarded became unreachable.
+
+The repair is paging plus *coverage*. `file_read` takes an `offset` and a `limit`, and
+each read extends a per-file high-water mark of how much has been seen contiguously —
+contiguously, because a read that skips ahead leaves a hole, and a hole is unseen
+content. The write guard consults coverage rather than size: it refuses while
+material genuinely remains unseen, and permits a shorter write once the model has
+actually paged through the whole file, which is an ordinary edit. The durable
+marker check is unchanged and still stands alone, covering the case module state
+cannot — a write-back in a session after a restart. The general shape is worth
+keeping in mind when adding any guard: a check that leaves no correct path forward
+has not made the system safe, only stuck.
 
 **MCP.** Users can register stdio MCP servers by command line. Their tools are
 namespaced by server (`filesystem_read_file`) and merged into the agent's
@@ -845,8 +865,9 @@ promise, and the posture is layered.
   model the user runs, including a poorly aligned local one. MCP servers run with
   the user's privileges, so registering one is still an act of trust in the server
   itself — the per-call gate bounds what it can do unattended, not what it is. Tool
-  arguments are not validated against the schema the tool declares before dispatch,
-  so a malformed call is caught by the tool's own handling rather than at the
+  arguments are checked against the declared schema before dispatch, but only for
+  shape — malformed JSON, missing required keys, unknown keys — and not for type, so
+  a value of the wrong type reaches the tool and fails inside it rather than at the
   boundary. And the unsigned executable requires a one-time SmartScreen
   click-through. These are documented rather than hidden, because a local tool's
   security story is only as good as its honesty about the edges.
@@ -1123,15 +1144,22 @@ partial-view write-backs that silently destroyed the unread remainder of a file
 (Section 6). And a run now has a record (below).
 
 **Runtime limitations.** These matter more day to day than the boundaries above. The
-file tools offer read, whole-file write, and list — no patch-style edit, no
-pagination, no search — so changing part of a large file still means rewriting all of
-it. The data-loss shape that combination used to produce is now refused rather than
-executed, which converts a silent corruption into a visible inefficiency; it does not
-make the inefficiency go away, and a large file the model must edit in place remains
-the case this toolset serves worst. Tool arguments are not validated against the
-schema the tool declares before dispatch, so a malformed call is caught by the tool's
-own handling rather than at the boundary, and the quality of that error varies by
-tool. The character-per-token ratio used to size the history budget is a heuristic
+file tools offer read, whole-file write, and list — no patch-style edit and no
+search — so changing one line of a large file means paging through it and writing all
+of it back, which is wasteful in tokens even though it is no longer impossible. That
+last word is recent and worth recording, because the failure it replaced was created
+by a fix. Refusing to write back content the model had only partly seen was correct;
+`file_read` returning nothing but the first `READ_LIMIT` characters, with no way to
+ask for more, was not. Together they made any file over that limit permanently
+uneditable, and the refusal advised the model to "re-read the file in full" — an
+instruction no argument could satisfy, so a capable model would loop until the
+repeat-guard stopped it. Paged reads plus coverage tracking resolve it: the guard now
+refuses only while content genuinely remains unseen. The general lesson is the one
+worth keeping — a safety check that leaves no correct path forward is not a safe
+system, it is a stuck one. Tool arguments are checked against the declared schema
+before dispatch, but only for shape — malformed JSON, missing required keys, unknown
+keys — not for type, so a wrong-typed value fails inside the tool rather than at the
+boundary, and the quality of that error varies by tool. The character-per-token ratio used to size the history budget is a heuristic
 standing in for a real tokenizer, so the budget is approximately right rather than
 exactly right — safe in the direction that matters, since it errs toward sending
 less, but not precise.
