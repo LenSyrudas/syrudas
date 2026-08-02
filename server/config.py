@@ -3,18 +3,13 @@ import os
 import sys
 from pathlib import Path
 
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 
 FROZEN = bool(getattr(sys, "frozen", False))
 
 if FROZEN:
-    # PyInstaller onedir: _MEIPASS is the _internal folder beside the exe, which
-    # holds the bundled read-only assets. Persistent state (db, workspace,
-    # plugins) lives next to the exe itself. Both sides of this were already
-    # written against sys.executable and _MEIPASS rather than either build mode's
-    # layout, so the onefile -> onedir switch needed no change here: under
-    # onefile _MEIPASS was a temp extraction folder, under onedir it is a real
-    # one, and nothing above cares which.
+    # PyInstaller onefile: bundled read-only assets unpack to _MEIPASS;
+    # persistent state (db, workspace, plugins) lives next to the exe.
     _BUNDLE = Path(getattr(sys, "_MEIPASS"))
     PROJECT_ROOT = Path(sys.executable).resolve().parent
     WEB_DIST = _BUNDLE / "web" / "dist"

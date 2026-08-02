@@ -85,10 +85,6 @@ try {
     Expand-Archive -Path $Zip -DestinationPath $work -Force
 
     Check "archive contains SyrudasAI\SyrudasAI.exe" (Test-Path (Join-Path $app "SyrudasAI.exe")) "missing"
-    # --onedir keeps the Python runtime in _internal beside the exe. Packaging
-    # the exe on its own yields an archive that unzips fine and dies on launch,
-    # so the layout is checked before anything is started.
-    Check "archive contains SyrudasAI\_internal" (Test-Path (Join-Path $app "_internal")) "missing - the exe cannot start without it"
     if ($failures.Count) { throw "archive layout is wrong; stopping" }
 
     $vi = (Get-Item (Join-Path $app "SyrudasAI.exe")).VersionInfo

@@ -32,9 +32,7 @@ runtime the app window uses.
    folder — move that folder wherever you want to keep it (e.g.
    `C:\SyrudasAI`), not your Downloads folder. The app stores everything
    (`data\`, `plugins\`) inside that folder, so keep it together. There's
-   nothing to rename. The **`_internal\`** folder beside the exe is the
-   application itself — don't delete, move or rename it, or the exe won't
-   start.
+   nothing to rename.
 2. Double-click **SyrudasAI.exe**.
    - If Windows shows *"Windows protected your PC"*, that is SmartScreen
      being cautious about unsigned apps: click **More info → Run anyway**.
@@ -341,24 +339,14 @@ Layout reference is in [README.md](../README.md); design rationale in
 ## 15. Building the exe and releases
 
 ```powershell
-.\build_exe.ps1       # -> dist\SyrudasAI\  (SyrudasAI.exe + _internal\)
-.\build_release.ps1   # -> release\SyrudasAI-vX.Y.Z-win64.zip (app + README + license + connectors)
+.\build_exe.ps1       # -> SyrudasAI.exe in the project root
+.\build_release.ps1   # -> release\SyrudasAI-vX.Y.Z-win64.zip (exe + README + license)
 ```
 
 To cut a new version: bump `APP_VERSION` in `server\config.py` **and** the
 matching numbers in `version_info.txt`, then run `build_release.ps1`.
 
 Notes:
-- The build is PyInstaller **`--onedir`**, not `--onefile`: the exe sits next
-  to an `_internal\` folder holding the Python runtime, and will not start
-  without it. A onefile build unpacks that runtime into `%TEMP%` on every
-  launch, which is slower and — because it is how a lot of malware is
-  packaged — reliably trips antivirus heuristics on an unsigned download.
-- Because the app is a folder rather than a lone file, `build_exe.ps1` no
-  longer copies anything to the project root. Run the built app from
-  `dist\SyrudasAI\`, or use `python desktop.py` / `.\run.ps1` during
-  development — those use the repository's own `data\` folder, which the
-  packaged build no longer shares.
 - The exe is unsigned; recipients will click through SmartScreen once.
 - The build fails with *Access is denied* if a built exe is currently
   running (Windows locks running executables) — close Syrudas first.

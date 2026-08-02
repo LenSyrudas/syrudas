@@ -46,7 +46,7 @@ Skip anything the release doesn't touch, but check each one:
 
 ```powershell
 .\run_tests.ps1        # backend suites + frontend unit tests, lint, typecheck
-.\build_release.ps1    # builds the app, zips it, then verifies the archive
+.\build_release.ps1    # builds the exe, zips it, then verifies the archive
 ```
 
 `build_release.ps1` calls `verify_release.ps1` automatically. That script
@@ -56,14 +56,6 @@ bundle, and — when a local backend is running — that first-run detection
 recovers. It refuses to run if port 8040 is already busy, because otherwise it
 would test the instance you already have open and pass on someone else's
 output.
-
-The build is `--onedir`, so what ships is `SyrudasAI.exe` **plus** the
-`_internal\` folder it cannot start without. That is a new way to ship
-something broken — an archive holding the exe alone unzips perfectly and dies
-on launch — so the layout is checked on both sides: `build_release.ps1` refuses
-to package a build with no `_internal`, and `verify_release.ps1` checks the
-unzipped archive for it before it launches anything. Neither check is optional,
-and neither is a substitute for step 7.
 
 `-SkipVerify` exists for when you genuinely can't free the port. If you use it,
 run `.\verify_release.ps1` yourself before shipping.
@@ -104,13 +96,18 @@ to the real thing.
 
 - **The exe is unsigned**, so SmartScreen shows "Windows protected your PC" on
   first run. Users have to click *More info → Run anyway*. Fixing this means
-  buying a code-signing certificate. That certificate is also the only real fix
-  for antivirus false positives: switching to `--onedir` removed the
-  self-extraction pattern that most reliably triggers them, but an unsigned
-  binary with no download reputation can still be flagged, and has been.
-- **The exe needs `_internal\` beside it.** Users who tidy up the folder, or
-  who copy just the exe somewhere, get an app that does not start. The end-user
-  README says so; it is still the most likely support question.
+  buying a code-signing certificate.
+- **Antivirus false positives happen, and repackaging does not fix them.**
+  Defender's ML classifier flags this project's archives as
+  `Trojan:Script/Wacatac.B!ml` — the release zip, and also the plain
+  source-code zip, which contains no binary at all. That last part is the tell:
+  the verdict tracks reputation and the general shape of the repository, not
+  how the exe is built. v1.0.1 was published as a PyInstaller `--onedir` build
+  specifically to remove the self-extraction pattern that most reliably trips
+  these heuristics; it was quarantined two seconds after download, and v1.0.2
+  reverted to `--onefile`. **Do not spend another release on this.** Report the
+  false positive at <https://www.microsoft.com/en-us/wdsi/filesubmission>
+  (free, a few days, clears it for everyone) and buy the certificate.
 - **The port is fixed at 8040.** A second copy will attach to the running
   instance instead of starting its own, which can look like the new version
   "did nothing". Worth remembering when testing an upgrade.

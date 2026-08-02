@@ -14,9 +14,7 @@ Quick start
 1. Unzip this download. Inside is a "SyrudasAI" folder - move it
    wherever you'd like to keep it (e.g. C:\SyrudasAI). Everything the
    app needs lives in that folder, and it stores its data there too, so
-   keep the folder together. The "_internal" folder beside the exe is
-   the application itself - don't delete, move or rename it, or
-   SyrudasAI.exe will not start.
+   keep the folder together.
 2. Install a model backend if you don't have one. The easiest is
    Ollama (https://ollama.com), then in a terminal run for example:
        ollama pull llama3.1:8b

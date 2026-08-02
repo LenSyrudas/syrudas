@@ -22,29 +22,19 @@ Write-Host "Installing build dependencies..."
 cmd /c "$python -m pip install --quiet pyinstaller pywebview 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 
-# --onedir, not --onefile. A onefile build is a self-extracting archive: every
-# launch unpacks the whole runtime into %TEMP% and runs it from there, which is
-# both slower to start and the exact shape antivirus heuristics look for -
-# Defender's ML classifier flags unsigned self-extractors readily, and an
-# unsigned onefile exe with no download reputation is the worst case for it.
-# --onedir ships the runtime as plain files beside the exe: nothing extracts at
-# run time, and there is no self-extraction pattern to trip. The trade is a
-# folder instead of a single file, which costs nothing here because the release
-# was always a folder inside a zip.
+# --onefile, and --onedir has already been tried. A onefile build is a
+# self-extracting archive, which is the shape antivirus heuristics distrust, so
+# v1.0.1 shipped as --onedir to remove that trait. Defender quarantined the
+# v1.0.1 zip two seconds after it downloaded (Trojan:Script/Wacatac.B!ml) - a
+# verdict the onefile v1.0.0 zip never got. One observation each way is not a
+# controlled result, but onedir demonstrably did not buy what it was meant to,
+# and it costs a self-contained exe. Do not switch again on reasoning alone;
+# the fix for false positives is a code-signing certificate.
 Write-Host "Building exe..."
-cmd /c "$python -m PyInstaller --noconfirm --clean --onedir --windowed --name SyrudasAI --icon icon.ico --version-file version_info.txt --add-data ""web/dist;web/dist"" --collect-submodules uvicorn --collect-all webview --exclude-module PIL desktop.py 2>&1"
+cmd /c "$python -m PyInstaller --noconfirm --clean --onefile --windowed --name SyrudasAI --icon icon.ico --version-file version_info.txt --add-data ""web/dist;web/dist"" --collect-submodules uvicorn --collect-all webview --exclude-module PIL desktop.py 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 
-$app = Join-Path $root "dist\SyrudasAI"
-if (-not (Test-Path (Join-Path $app "SyrudasAI.exe"))) {
-    throw "PyInstaller reported success but $app\SyrudasAI.exe is missing"
-}
-# The exe is NOT copied to the project root any more. Under --onedir it cannot
-# run without the _internal folder beside it, so a lone exe at the root would be
-# a build that looks finished and fails on launch. It also means a packaged
-# build no longer shares the repository's data\ folder - use `python desktop.py`
-# or .\run.ps1 for that, which is what they were already for.
+Copy-Item dist\SyrudasAI.exe $root -Force
 Write-Host ""
-Write-Host "Done: $app\SyrudasAI.exe  (double-click to launch the desktop app)"
-Write-Host "Keep _internal\ beside it - the exe will not start without it."
-Write-Host "Logs when windowed: data\syrudas.log (beside the exe)"
+Write-Host "Done: $root\SyrudasAI.exe  (double-click to launch the desktop app)"
+Write-Host "Logs when windowed: data\syrudas.log"
