@@ -28,6 +28,11 @@ on it and build my own releases."
 **Requirements:** Windows 10/11. Windows 11 already includes the WebView2
 runtime the app window uses.
 
+**Get it from
+[Releases](https://github.com/LenSyrudas/syrudas/releases/latest)** — the file named
+`SyrudasAI-vX.Y.Z-win64.zip`. Not the green *Code* button and not *Source code (zip)*:
+those are the source, they contain no application, and they will not run.
+
 1. Unzip `SyrudasAI-vX.Y.Z-win64.zip`. It contains a single **`SyrudasAI`**
    folder — move that folder wherever you want to keep it (e.g.
    `C:\SyrudasAI`), not your Downloads folder. The app stores everything
