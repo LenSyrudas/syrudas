@@ -1,5 +1,21 @@
 # Syrudas AI
 
+## ⬇ [**Download Syrudas AI for Windows**](https://github.com/LenSyrudas/syrudas/releases/latest)
+
+Get `SyrudasAI-vX.Y.Z-win64.zip` from that page. Unzip it, and double-click
+`SyrudasAI.exe` — that is the whole install.
+
+> **Don't use the green "Code" button, and don't take "Source code (zip)".** Those give
+> you the source code, which has no application in it and will not run. If you downloaded
+> something called `syrudas-master.zip` and nothing happened, that is why — go to
+> [Releases](https://github.com/LenSyrudas/syrudas/releases/latest) instead.
+
+Windows will say *"Windows protected your PC"* the first time, because the app isn't
+code-signed. Click **More info → Run anyway**. Everything below this line is for people
+who want to read the code or build it themselves.
+
+---
+
 [![CI](https://github.com/LenSyrudas/syrudas/actions/workflows/ci.yml/badge.svg)](https://github.com/LenSyrudas/syrudas/actions/workflows/ci.yml)
 
 A local-first AI workspace for Windows, built on one bet: **the model is the most
