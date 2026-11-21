@@ -15,6 +15,7 @@ class ConversationPatch(BaseModel):
     provider_id: str | None = None
     model: str | None = None
     agent_mode: bool | None = None
+    auto_approve: bool | None = None
     system_prompt: str | None = None
 
 
@@ -37,8 +38,9 @@ async def patch_conversation(conv_id: str, patch: ConversationPatch):
     if not await db.get_conversation(conv_id):
         raise HTTPException(404, "Conversation not found")
     fields = {k: v for k, v in patch.model_dump(exclude_none=True).items()}
-    if "agent_mode" in fields:
-        fields["agent_mode"] = int(fields["agent_mode"])
+    for flag in ("agent_mode", "auto_approve"):
+        if flag in fields:
+            fields[flag] = int(fields[flag])
     await db.update_conversation(conv_id, **fields)
     return await db.get_conversation(conv_id)
 

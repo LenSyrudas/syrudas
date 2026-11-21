@@ -48,6 +48,48 @@ async def write_agent_folders(body: AgentFoldersIn):
     return await read_agent_folders()
 
 
+AUTO_TOOLS_KEY = "auto_approve_tools"
+
+
+async def get_auto_tools() -> list[str]:
+    """Tool names the user trusts to run without the per-call prompt."""
+    try:
+        tools = json.loads(await db.get_setting(AUTO_TOOLS_KEY, "[]"))
+    except json.JSONDecodeError:
+        return []
+    return [t for t in tools if isinstance(t, str)]
+
+
+class AutoToolsIn(BaseModel):
+    tools: list[str] = Field(default_factory=list)
+
+
+@router.get("/settings/auto-tools")
+async def read_auto_tools():
+    from ..agent import collect_tools
+    from ..tools import Tool
+
+    tools = await collect_tools()
+    # candidates: anything that can ever ask - a static gate (shell, web_fetch,
+    # MCP tools) or an argument-dependent one (file_write outside the workspace)
+    gated = sorted(
+        t.name for t in tools
+        if t.requires_approval or type(t).needs_approval is not Tool.needs_approval
+    )
+    return {"tools": await get_auto_tools(), "gated": gated}
+
+
+@router.put("/settings/auto-tools")
+async def write_auto_tools(body: AutoToolsIn):
+    cleaned = []
+    for t in body.tools:
+        t = t.strip()
+        if t and t not in cleaned:
+            cleaned.append(t)
+    await db.set_setting(AUTO_TOOLS_KEY, json.dumps(cleaned))
+    return await read_auto_tools()
+
+
 PROMPT_PRESETS_KEY = "prompt_presets"
 
 

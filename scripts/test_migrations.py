@@ -85,10 +85,14 @@ async def test_legacy_database_is_migrated_and_backed_up():
 
     conn = await open_at(path)
     cols = {r["name"] for r in await conn.execute_fetchall("PRAGMA table_info(messages)")}
+    conv_cols = {r["name"] for r in
+                 await conn.execute_fetchall("PRAGMA table_info(conversations)")}
     convs = await db.list_conversations()
     await db.close_db()
 
     assert {"input_tokens", "output_tokens"} <= cols, f"columns not added: {cols}"
+    assert "auto_approved" in cols, f"messages not migrated: {cols}"
+    assert "auto_approve" in conv_cols, f"conversations not migrated: {conv_cols}"
     assert version_of(path) == db.SCHEMA_VERSION
     assert [c["title"] for c in convs] == ["irreplaceable"], "existing data was lost"
     backups = list(d.glob("*pre-v0*"))
@@ -148,6 +152,9 @@ async def test_a_migration_can_touch_any_table():
         if "pinned" not in cols:
             await conn.execute("ALTER TABLE conversations ADD COLUMN pinned INTEGER")
 
+    # the database is at the current version; the extra migration moves it one
+    # further, so the pre-migration backup carries THIS version's number
+    before = db.SCHEMA_VERSION
     db.MIGRATIONS.append(add_a_column_to_conversations)
     db.SCHEMA_VERSION = len(db.MIGRATIONS)
     try:
@@ -158,7 +165,8 @@ async def test_a_migration_can_touch_any_table():
         assert "pinned" in cols, \
             "a migration against a table other than `messages` did not run"
         assert version_of(path) == db.SCHEMA_VERSION
-        assert list(d.glob("*pre-v1*")), "an upgrade of existing data must be backed up"
+        assert list(d.glob(f"*pre-v{before}*")), \
+            "an upgrade of existing data must be backed up"
     finally:
         db.MIGRATIONS.pop()
         db.SCHEMA_VERSION = len(db.MIGRATIONS)

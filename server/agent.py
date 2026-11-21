@@ -32,6 +32,30 @@ log = logging.getLogger(__name__)
 APPROVAL_TIMEOUT_S = 15 * 60
 _pending_approvals: dict[str, asyncio.Future] = {}
 
+# Pause/resume: a pause is a flag the loop picks up at the next step boundary
+# (mid-token the stream can't stop cleanly); the run then parks on a future
+# exactly like the approval gate, and Stop still tears it down from there.
+_pause_flags: set[str] = set()
+_resume_waiters: dict[str, asyncio.Future] = {}
+
+
+def request_pause(conv_id: str) -> None:
+    """Ask the active run to park at the next step boundary."""
+    waiter = _resume_waiters.get(conv_id)
+    if waiter is None or waiter.done():
+        _pause_flags.add(conv_id)
+
+
+def request_resume(conv_id: str) -> bool:
+    """Unpark a paused run. False when it wasn't parked (never parked, or
+    Stop reached it first) - the caller reports that rather than lying."""
+    _pause_flags.discard(conv_id)
+    waiter = _resume_waiters.pop(conv_id, None)
+    if waiter is None or waiter.done():
+        return False
+    waiter.set_result(True)
+    return True
+
 # writes handed off by a cancelled run; referenced so they can't be GC'd mid-flight
 _detached_writes: set[asyncio.Task] = set()
 
@@ -57,6 +81,11 @@ provided by connected MCP servers.
 
 Guidelines:
 - Use tools when they help; answer directly when they don't.
+- Narrate as you work: a short sentence before a tool call saying what you are
+  doing, then keep moving. Long stretches of tool calls with no text read as
+  stalled, and the user is watching the run live.
+- Make independent tool calls together in one step instead of one per step;
+  each round trip is a visible pause.
 - Prefer file tools over shell for reading/writing workspace files.
 - Shell commands run in PowerShell and require the user's approval - keep them focused.
 - Web page fetches and file writes outside the workspace also wait for the user's
@@ -192,6 +221,7 @@ async def stream_agent_chat(
     provider: ModelProvider,
     params: Optional[GenParams] = None,
     gen: Optional[int] = None,
+    auto_approve: bool = False,
 ) -> AsyncIterator[dict]:
     from . import runs
     if gen is None:
@@ -219,6 +249,16 @@ async def stream_agent_chat(
         if block:
             prompt += "\n\n" + block
     conv = {**conv, "system_prompt": prompt}
+    if auto_approve:
+        # the standing prompt tells the model gated tools wait for approval;
+        # in auto mode that is no longer true, and a model pacing itself for
+        # prompts that never come behaves measurably worse
+        conv["system_prompt"] += (
+            "\n\nAuto mode is on for this run: gated tools (shell commands, web "
+            "page fetches, file writes outside the workspace) execute immediately "
+            "without waiting for the user's approval. Work autonomously, but keep "
+            "commands focused and prefer reversible actions."
+        )
     budget = await history_budget(provider, conv["model"], agent_mode=True)
     history = await build_history(conv, budget)
 
@@ -238,6 +278,17 @@ async def stream_agent_chat(
     empty_retries = 0
     try:
         for _step in range(MAX_AGENT_STEPS):
+            if conv["id"] in _pause_flags:
+                _pause_flags.discard(conv["id"])
+                yield {"type": "paused"}
+                waiter = asyncio.get_running_loop().create_future()
+                _resume_waiters[conv["id"]] = waiter
+                try:
+                    await waiter
+                finally:
+                    # Stop cancels the parked await; the id must not outlive it
+                    _resume_waiters.pop(conv["id"], None)
+                yield {"type": "resumed"}
             # Re-trim every step, not once per turn. A tool-heavy run appends
             # results as it goes, and left unchecked the request outgrows the
             # window mid-turn - at which point the backend starts dropping the
@@ -318,7 +369,25 @@ async def stream_agent_chat(
                         tool_started = time.perf_counter()
                         result = await _execute_tool_call(tool_map, tc)
                         gated = result is None
+                    auto_approved = False
                     if result is None:
+                        # re-read the conversation row: the Auto toggle PATCHes
+                        # it live, so flipping Auto on mid-run takes effect at
+                        # the next gated call rather than the next message
+                        fresh = await db.get_conversation(conv["id"])
+                        live_auto = auto_approve or bool((fresh or {}).get("auto_approve"))
+                        if not live_auto:
+                            # per-tool trust from Settings ("Always allow"):
+                            # this tool runs without asking even with Auto off
+                            from .routes.settings import get_auto_tools
+                            live_auto = tc.name in await get_auto_tools()
+                    if result is None and live_auto:
+                        # auto mode: run gated tools straight away, but keep the
+                        # tool_result event's marker so the UI can show the call
+                        # went through unreviewed rather than with a manual tick
+                        result = await _run_tool(tool_map[tc.name], tc)
+                        auto_approved = True
+                    elif result is None:
                         # approval path: emit events through the generator
                         approval_id = uuid.uuid4().hex
                         future = _register_approval(approval_id)
@@ -341,7 +410,11 @@ async def stream_agent_chat(
                     # tool really produced must not be overwritten by the
                     # interrupted marker on the way out
                     await persist_if_current(conv["id"], gen, "tool", result,
-                                             tool_call_id=tc.id)
+                                             tool_call_id=tc.id,
+                                             # the ⚡ marker must survive a reload;
+                                             # NULL for ordinary calls so old rows
+                                             # and free tools read the same way
+                                             auto_approved=auto_approved or None)
                     # the raw result is what was persisted; the model sees it
                     # fenced, exactly as build_history will render it on replay
                     history.append(Message(role="tool",
@@ -357,6 +430,9 @@ async def stream_agent_chat(
                         # denials and errors; it needs telling which is which
                         "is_error": tool_result_failed(result),
                         "denied": result == DENIED_TOOL_RESULT,
+                        # only meaningful for gated tools; always present so a
+                        # replayed transcript and a live stream mark the same way
+                        "auto_approved": auto_approved,
                     }
             finally:
                 _close_tool_gap(conv["id"], gen, tool_calls, answered)

@@ -13,6 +13,21 @@ import asyncio
 
 _active: dict[str, int] = {}
 _generation: dict[str, int] = {}
+_locks: dict[str, asyncio.Lock] = {}
+
+
+def queue_lock(conv_id: str) -> asyncio.Lock:
+    """One mutex per conversation, held by a chat stream for its whole run.
+
+    wait_idle + StreamGuard only mark activity; nothing stops two streams
+    that both observed "idle" in the same moment from interleaving writes.
+    Queued follow-ups are the first feature that actually waits past that
+    window, so the exclusion has to be real now.
+    """
+    lock = _locks.get(conv_id)
+    if lock is None:
+        lock = _locks[conv_id] = asyncio.Lock()
+    return lock
 
 
 def generation(conv_id: str) -> int:

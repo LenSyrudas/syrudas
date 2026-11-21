@@ -25,7 +25,12 @@ DEFAULT_WORKSPACE = DATA_DIR / "workspace"
 HOST = "127.0.0.1"
 PORT = 8040
 
-MAX_AGENT_STEPS = 15
+# Ceiling on model<->tool rounds in one run, not a budget: ordinary runs end in
+# a handful of steps. This exists so a stuck or looping model cannot run
+# forever - with auto mode removing the per-call prompt, a runaway would
+# otherwise have nothing left to stop it. The identical-call throttle in
+# agent.py is the other backstop.
+MAX_AGENT_STEPS = 1000
 
 # Fallback char budget for history, used only when the backend will not say how
 # much context the chosen model has. Deliberately conservative: overshooting

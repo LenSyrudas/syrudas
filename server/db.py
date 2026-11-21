@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     provider_id TEXT,
     model TEXT,
     agent_mode INTEGER NOT NULL DEFAULT 0,
+    auto_approve INTEGER NOT NULL DEFAULT 0,
     system_prompt TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -38,7 +39,8 @@ CREATE TABLE IF NOT EXISTS messages (
     tool_call_id TEXT,
     created_at TEXT NOT NULL,
     input_tokens INTEGER,
-    output_tokens INTEGER
+    output_tokens INTEGER,
+    auto_approved INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
 CREATE TABLE IF NOT EXISTS provider_instances (
@@ -131,6 +133,13 @@ async def _add_token_columns(conn: aiosqlite.Connection) -> None:
             await conn.execute(f"ALTER TABLE messages ADD COLUMN {col} INTEGER")  # noqa: S608
 
 
+async def _add_auto_approve_column(conn: aiosqlite.Connection) -> None:
+    cols = {r["name"] for r in await conn.execute_fetchall("PRAGMA table_info(conversations)")}
+    if "auto_approve" not in cols:
+        await conn.execute(
+            "ALTER TABLE conversations ADD COLUMN auto_approve INTEGER NOT NULL DEFAULT 0")
+
+
 # Ordered, append-only. MIGRATIONS[n] moves a database from version n to n+1,
 # and SCHEMA_VERSION is len(MIGRATIONS). Each one must be safe to run against a
 # database that already has the change: a fresh install gets the current shape
@@ -140,8 +149,16 @@ async def _add_token_columns(conn: aiosqlite.Connection) -> None:
 # ever see one table. Adding a column to conversations, documents, memories or
 # settings would have shipped a build that raised on every existing install and
 # worked perfectly on the developer's own machine.
+async def _add_auto_approved_column(conn: aiosqlite.Connection) -> None:
+    cols = {r["name"] for r in await conn.execute_fetchall("PRAGMA table_info(messages)")}
+    if "auto_approved" not in cols:
+        await conn.execute("ALTER TABLE messages ADD COLUMN auto_approved INTEGER")
+
+
 MIGRATIONS = [
-    _add_token_columns,      # 0 -> 1: per-message token accounting
+    _add_token_columns,        # 0 -> 1: per-message token accounting
+    _add_auto_approve_column,  # 1 -> 2: per-conversation auto-approve for agent runs
+    _add_auto_approved_column,  # 2 -> 3: tool results remember they ran unreviewed
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -192,16 +209,17 @@ async def close_db() -> None:
 # --- conversations ---
 
 async def create_conversation(provider_id: str, model: str, agent_mode: bool,
-                              system_prompt: str = "") -> dict:
+                              system_prompt: str = "", auto_approve: bool = False) -> dict:
     db = await get_db()
     conv = {
         "id": new_id(), "title": "New chat", "provider_id": provider_id, "model": model,
-        "agent_mode": int(agent_mode), "system_prompt": system_prompt,
+        "agent_mode": int(agent_mode), "auto_approve": int(auto_approve),
+        "system_prompt": system_prompt,
         "created_at": now(), "updated_at": now(),
     }
     await db.execute(
-        "INSERT INTO conversations (id,title,provider_id,model,agent_mode,system_prompt,created_at,updated_at)"
-        " VALUES (:id,:title,:provider_id,:model,:agent_mode,:system_prompt,:created_at,:updated_at)",
+        "INSERT INTO conversations (id,title,provider_id,model,agent_mode,auto_approve,system_prompt,created_at,updated_at)"
+        " VALUES (:id,:title,:provider_id,:model,:agent_mode,:auto_approve,:system_prompt,:created_at,:updated_at)",
         conv,
     )
     await db.commit()
@@ -242,17 +260,19 @@ async def add_message(conversation_id: str, role: str, content: str = "",
                       tool_calls: Optional[list[dict]] = None,
                       tool_call_id: Optional[str] = None,
                       input_tokens: Optional[int] = None,
-                      output_tokens: Optional[int] = None) -> dict:
+                      output_tokens: Optional[int] = None,
+                      auto_approved: Optional[bool] = None) -> dict:
     db = await get_db()
     msg = {
         "id": new_id(), "conversation_id": conversation_id, "role": role, "content": content,
         "tool_calls": json.dumps(tool_calls) if tool_calls else None,
         "tool_call_id": tool_call_id, "created_at": now(),
         "input_tokens": input_tokens, "output_tokens": output_tokens,
+        "auto_approved": None if auto_approved is None else int(auto_approved),
     }
     await db.execute(
-        "INSERT INTO messages (id,conversation_id,role,content,tool_calls,tool_call_id,created_at,input_tokens,output_tokens)"
-        " VALUES (:id,:conversation_id,:role,:content,:tool_calls,:tool_call_id,:created_at,:input_tokens,:output_tokens)",
+        "INSERT INTO messages (id,conversation_id,role,content,tool_calls,tool_call_id,created_at,input_tokens,output_tokens,auto_approved)"
+        " VALUES (:id,:conversation_id,:role,:content,:tool_calls,:tool_call_id,:created_at,:input_tokens,:output_tokens,:auto_approved)",
         msg,
     )
     await db.execute("UPDATE conversations SET updated_at = ? WHERE id = ?",
