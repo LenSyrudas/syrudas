@@ -30,11 +30,14 @@ db.DB_PATH = TMP / "test.db"
 
 from server.tools import files as files_mod  # noqa: E402
 files_mod.DEFAULT_WORKSPACE = WORKSPACE
+files_mod.SNAPSHOT_DIR = TMP / "snapshots"
 
 from server.tools import TRUNCATION_MARK  # noqa: E402
-from server.tools.files import READ_LIMIT, FileReadTool, FileWriteTool  # noqa: E402
+from server.tools.files import (  # noqa: E402
+    READ_LIMIT, FileReadTool, FileRestoreTool, FileWriteTool)
 
 READ, WRITE = FileReadTool(), FileWriteTool()
+RESTORE = FileRestoreTool()
 
 
 def big_file(name: str, lines: int = 3000) -> Path:
@@ -215,6 +218,66 @@ async def test_a_hole_in_coverage_still_refuses():
     print("non-contiguous paging: coverage not credited, refused OK")
 
 
+async def test_an_overwrite_keeps_the_previous_version():
+    target = WORKSPACE / "undo.md"
+    target.write_text("the original text", "utf-8")
+
+    result = await WRITE.run({"path": "undo.md", "content": "replaced"})
+
+    assert "previous version" in result, f"the snapshot should be reported: {result}"
+    snaps = list(files_mod.SNAPSHOT_DIR.glob("*_undo.md"))
+    assert len(snaps) == 1, f"expected one snapshot, found {snaps}"
+    assert snaps[0].read_text("utf-8") == "the original text"
+    assert target.read_text("utf-8") == "replaced"
+    print(f"overwrite: previous version kept at {snaps[0].name} OK")
+
+
+async def test_new_files_and_noop_writes_make_no_snapshot():
+    before = len(list(files_mod.SNAPSHOT_DIR.glob("*")))
+    await WRITE.run({"path": "fresh.md", "content": "first version"})
+    after_create = len(list(files_mod.SNAPSHOT_DIR.glob("*")))
+    assert after_create == before, "creating a file must not snapshot anything"
+
+    await WRITE.run({"path": "fresh.md", "content": "first version"})  # identical
+    after_noop = len(list(files_mod.SNAPSHOT_DIR.glob("*")))
+    assert after_noop == before, "a write that changes nothing must not snapshot"
+    print("new files and identical rewrites: no snapshot clutter OK")
+
+
+async def test_restore_brings_back_the_pre_overwrite_version():
+    target = WORKSPACE / "restore-me.md"
+    target.write_text("version one", "utf-8")
+    await WRITE.run({"path": "restore-me.md", "content": "version two"})
+
+    result = await RESTORE.run({"path": "restore-me.md"})
+
+    assert result.startswith("Restored"), result
+    assert target.read_text("utf-8") == "version one"
+    print("restore: pre-overwrite version back on disk OK")
+
+
+async def test_restore_snapshots_the_state_it_replaces():
+    """A restore is itself an overwrite; undoing the undo must work."""
+    target = WORKSPACE / "restore-me.md"
+    assert target.read_text("utf-8") == "version one"
+
+    await WRITE.run({"path": "restore-me.md", "content": "version three"})
+    await RESTORE.run({"path": "restore-me.md"})   # newest snapshot: "version one"
+    # that restore snapshotted "version three" first, so one more restore
+    # brings THAT back instead of losing it
+    again = await RESTORE.run({"path": "restore-me.md"})
+
+    assert again.startswith("Restored"), again
+    assert target.read_text("utf-8") == "version three", target.read_text("utf-8")
+    print("restore of a restore: nothing is ever lost OK")
+
+
+async def test_restore_without_a_snapshot_says_so():
+    result = await RESTORE.run({"path": "never-touched.md"})
+    assert result.startswith("Error:") and "no snapshots" in result, result
+    print("restore with nothing to restore: clear error, nothing written OK")
+
+
 async def main():
     try:
         await test_truncated_readback_is_refused()
@@ -227,6 +290,11 @@ async def main():
         await test_a_different_path_is_unaffected()
         await test_paging_through_a_large_file_then_editing_it()
         await test_a_hole_in_coverage_still_refuses()
+        await test_an_overwrite_keeps_the_previous_version()
+        await test_new_files_and_noop_writes_make_no_snapshot()
+        await test_restore_brings_back_the_pre_overwrite_version()
+        await test_restore_snapshots_the_state_it_replaces()
+        await test_restore_without_a_snapshot_says_so()
         print("\nALL FILE WRITE SAFETY TESTS PASSED")
 
     finally:

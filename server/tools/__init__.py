@@ -39,7 +39,7 @@ def truncate(text: str, limit: int) -> str:
 
 
 def builtin_tools() -> list[Tool]:
-    from .files import FileListTool, FileReadTool, FileWriteTool
+    from .files import FileListTool, FileReadTool, FileRestoreTool, FileWriteTool
     from .knowledge import KnowledgeSearchTool
     from .memory import MemoryDeleteTool, MemorySaveTool, MemorySearchTool
     from .shell import ShellTool
@@ -49,6 +49,7 @@ def builtin_tools() -> list[Tool]:
         ShellTool(),
         FileReadTool(),
         FileWriteTool(),
+        FileRestoreTool(),
         FileListTool(),
         WebFetchTool(),
         WebSearchTool(),

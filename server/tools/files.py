@@ -2,16 +2,54 @@
 
 Relative paths resolve inside the workspace. Absolute paths are allowed only
 inside folders the user granted under Settings -> Agent file access.
+
+Every overwrite keeps the previous contents in SNAPSHOT_DIR first. Approval
+mode has a human reviewing each write; auto mode does not, and an unreviewed
+overwrite with no copy kept is the one mistake these tools cannot take back.
 """
 from __future__ import annotations
 
+import hashlib
+import logging
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
-from ..config import DEFAULT_WORKSPACE
+from ..config import DATA_DIR, DEFAULT_WORKSPACE
 from . import Tool, TRUNCATION_MARK, truncate
 
+log = logging.getLogger(__name__)
+
 READ_LIMIT = 12000
+
+SNAPSHOT_DIR = DATA_DIR / "snapshots"
+SNAPSHOT_KEEP = 200
+
+
+def _snapshot(target: Path, before: str) -> Optional[Path]:
+    """Save the previous contents of a file about to be overwritten.
+
+    Returns the snapshot path, or None if it could not be written - a failed
+    snapshot must not block a write the guards already allowed, but it is
+    logged, because it quietly removes the only undo.
+    """
+    try:
+        SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        # same-named files in different folders would collide; a short hash of
+        # the full path keeps them apart, timestamp-first names sort by time
+        key = hashlib.sha1(str(target).encode("utf-8")).hexdigest()[:6]
+        dest = SNAPSHOT_DIR / f"{stamp}_{key}_{target.name}"
+        dest.write_text(before, "utf-8")
+        for old in sorted(SNAPSHOT_DIR.iterdir())[:-SNAPSHOT_KEEP]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+        return dest
+    except OSError:
+        log.warning("Could not snapshot %s before overwriting it", target, exc_info=True)
+        return None
 
 # Per file: (size when last read, furthest contiguous character index seen).
 #
@@ -84,6 +122,28 @@ def _resolve(path_str: str, roots: list[Path]) -> Path:
     if target != roots[0] and roots[0] not in target.parents:
         raise ValueError(f"Path escapes the workspace: {path_str}")
     return target
+
+
+async def _is_outside_workspace(args: dict[str, Any]) -> bool:
+    """Shared gating for the write-family tools: workspace is free, granted
+    folders ask. An unresolvable path needs no prompt - run() refuses it."""
+    roots = await allowed_roots()
+    try:
+        target = _resolve(str(args.get("path", "")), roots)
+    except ValueError:
+        return False
+    workspace = roots[0]
+    return target != workspace and workspace not in target.parents
+
+
+def _snapshots_for(target: Path) -> list[Path]:
+    """Snapshots of one file, oldest first. Names embed glob metacharacters
+    often enough (brackets in temp names) that a suffix filter beats glob."""
+    if not SNAPSHOT_DIR.is_dir():
+        return []
+    key = hashlib.sha1(str(target).encode("utf-8")).hexdigest()[:6]
+    suffix = f"_{key}_{target.name}"
+    return sorted(p for p in SNAPSHOT_DIR.iterdir() if p.name.endswith(suffix))
 
 
 class FileReadTool(Tool):
@@ -171,13 +231,7 @@ class FileWriteTool(Tool):
 
     async def needs_approval(self, args: dict[str, Any]) -> bool:
         """Workspace writes are free; writes to user-granted folders are gated."""
-        roots = await allowed_roots()
-        try:
-            target = _resolve(str(args.get("path", "")), roots)
-        except ValueError:
-            return False  # run() will refuse it anyway - no point prompting
-        workspace = roots[0]
-        return target != workspace and workspace not in target.parents
+        return await _is_outside_workspace(args)
 
     async def run(self, args: dict[str, Any]) -> str:
         try:
@@ -217,11 +271,71 @@ class FileWriteTool(Tool):
                             "until it says you have seen the whole file, then write "
                             "it back - or write to a different path.")
 
+            snapshot = _snapshot(target, before) if existed and before != content else None
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, "utf-8")
             # what is on disk is exactly what was just written, and fully known
             _read_progress[target] = (len(content), len(content))
-            return _describe_change(target, existed, before, content)
+            note = _describe_change(target, existed, before, content)
+            if snapshot:
+                note += f"\nThe previous version was saved to {snapshot}"
+            return note
+        except (OSError, ValueError) as exc:
+            return f"Error: {exc}"
+
+
+class FileRestoreTool(Tool):
+    name = "file_restore"
+    description = (
+        "Restore a file to the version saved before the agent last overwrote it "
+        "(every overwrite keeps a snapshot automatically). Restores the newest "
+        "snapshot; pass 'snapshot' to pick an older one by filename."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Relative (workspace) or absolute path of the file to restore"},
+            "snapshot": {
+                "type": "string",
+                "description": "Optional snapshot filename; the error message lists what is available.",
+            },
+        },
+        "required": ["path"],
+    }
+
+    async def needs_approval(self, args: dict[str, Any]) -> bool:
+        """Same gating as file_write: it overwrites wherever it restores."""
+        return await _is_outside_workspace(args)
+
+    async def run(self, args: dict[str, Any]) -> str:
+        try:
+            target = _resolve(str(args.get("path", "")), await allowed_roots())
+            snaps = _snapshots_for(target)
+            if not snaps:
+                return (f"Error: no snapshots for {args.get('path')} - it was never "
+                        "overwritten by the agent (or the snapshots were cleaned up).")
+            chosen = snaps[-1]
+            wanted = str(args.get("snapshot") or "").strip()
+            if wanted:
+                # exact filename only; a path here would be a way out of the sandbox
+                matches = [s for s in snaps if s.name == Path(wanted).name]
+                if not matches:
+                    available = ", ".join(s.name for s in snaps[-5:])
+                    return (f"Error: no snapshot named {wanted!r} for this file. "
+                            f"Newest available: {available}")
+                chosen = matches[0]
+
+            content = chosen.read_text("utf-8", errors="replace")
+            # restoring is itself an overwrite - snapshot the current state too,
+            # so an accidental restore is just as undoable as the write was
+            if target.is_file():
+                current = target.read_text("utf-8", errors="replace")
+                if current != content:
+                    _snapshot(target, current)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, "utf-8")
+            _read_progress[target] = (len(content), len(content))
+            return f"Restored {target} from snapshot {chosen.name} ({len(content)} chars)"
         except (OSError, ValueError) as exc:
             return f"Error: {exc}"
 
