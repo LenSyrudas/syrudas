@@ -11,6 +11,7 @@ import {
   deleteMemory,
   deleteProvider,
   getAgentFolders,
+  getAutoTools,
   getKnowledge,
   indexKnowledgePath,
   listMcpServers,
@@ -19,11 +20,18 @@ import {
   listProviders,
   searchKnowledge,
   setAgentFolders,
+  setAutoTools,
   setKnowledgeEmbedding,
   setMcpServerEnabled,
   updateProvider,
 } from '../api'
-import type { AgentFolders, KnowledgeIndexResult, KnowledgeInfo, MemoryEntry } from '../api'
+import type {
+  AgentFolders,
+  AutoTools,
+  KnowledgeIndexResult,
+  KnowledgeInfo,
+  MemoryEntry,
+} from '../api'
 import type { McpServer, ProviderInstance, ProviderType } from '../types'
 import {
   getAppearance,
@@ -50,6 +58,7 @@ export default function SettingsView({ onProvidersChanged }: { onProvidersChange
       <ProvidersSection onChanged={onProvidersChanged} />
       <McpSection />
       <AgentAccessSection />
+      <AgentAutoApproveSection />
       <KnowledgeSection />
       <MemorySection />
       <footer className="settings-footer">
@@ -379,6 +388,53 @@ function AgentAccessSection() {
           Grant access
         </button>
       </div>
+      {error && <div className="form-error">⚠ {error}</div>}
+    </section>
+  )
+}
+
+function AgentAutoApproveSection() {
+  const [info, setInfo] = useState<AutoTools | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    getAutoTools().then(setInfo).catch(console.error)
+  }, [])
+
+  async function toggle(name: string, on: boolean) {
+    if (!info) return
+    const next = on ? [...info.tools, name] : info.tools.filter((t) => t !== name)
+    try {
+      setInfo(await setAutoTools(next))
+      setError('')
+    } catch (e) {
+      setError(String(e))
+    }
+  }
+
+  return (
+    <section className="settings-section">
+      <div className="section-head">
+        <h2>Agent auto-approve</h2>
+      </div>
+      <p className="hint">
+        Trusted tools run without the per-call approval prompt, even with the Auto
+        toggle off. The "Always allow" button on an approval prompt adds a tool here.
+        The Auto toggle in the top bar auto-approves <em>everything</em> — this list is
+        the narrower alternative.
+      </p>
+      {info?.gated.length === 0 && <p className="hint">No gated tools available.</p>}
+      {info?.gated.map((name) => (
+        <label key={name} className="card row" style={{ cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={info.tools.includes(name)}
+            onChange={(e) => toggle(name, e.target.checked)}
+          />
+          <span className="mono grow">{name}</span>
+          <span className="muted">{info.tools.includes(name) ? 'runs without asking' : 'asks each time'}</span>
+        </label>
+      ))}
       {error && <div className="form-error">⚠ {error}</div>}
     </section>
   )

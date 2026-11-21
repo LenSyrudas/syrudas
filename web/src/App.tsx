@@ -48,6 +48,11 @@ function App() {
   const [agentMode, setAgentMode] = useState(
     () => localStorage.getItem('syrudas.agentMode') === '1',
   )
+  // auto mode only means anything alongside agent mode; stored separately so
+  // turning agent mode off and on doesn't lose the choice
+  const [autoMode, setAutoMode] = useState(
+    () => localStorage.getItem('syrudas.autoMode') === '1',
+  )
   const [genParams, setGenParams] = useState<GenParams>(loadGenParams)
   const [systemPrompt, setSystemPrompt] = useState('')
   const [personaOpen, setPersonaOpen] = useState(false)
@@ -127,6 +132,22 @@ function App() {
     localStorage.setItem('syrudas.agentMode', agentMode ? '1' : '0')
   }, [agentMode])
   useEffect(() => {
+    localStorage.setItem('syrudas.autoMode', autoMode ? '1' : '0')
+  }, [autoMode])
+  // The agent loop re-reads the conversation row before each gated tool call,
+  // so PATCHing here makes flipping Auto mid-run take effect at the next
+  // gated call instead of the next message. Only fire on a genuine toggle -
+  // not on every conversation switch, which would also bump updated_at and
+  // reorder the sidebar.
+  const autoApplied = useRef<boolean | null>(null)
+  useEffect(() => {
+    const value = agentMode && autoMode
+    if (autoApplied.current === value) return
+    autoApplied.current = value
+    if (activeId)
+      patchConversation(activeId, { auto_approve: value ? 1 : 0 }).catch(console.error)
+  }, [autoMode, agentMode, activeId])
+  useEffect(() => {
     localStorage.setItem('syrudas.genParams', JSON.stringify(genParams))
   }, [genParams])
 
@@ -200,6 +221,22 @@ function App() {
                 />
                 <span>Agent mode</span>
               </label>
+              <label
+                className="agent-toggle"
+                title={
+                  agentMode
+                    ? 'Auto mode: shell commands, web fetches and writes outside the workspace run without asking each time'
+                    : 'Auto mode runs gated tools without approval prompts - turn Agent mode on first'
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={autoMode}
+                  disabled={!agentMode}
+                  onChange={(e) => setAutoMode(e.target.checked)}
+                />
+                <span>Auto</span>
+              </label>
               <div className="topbar-spacer" />
               <TuningPopover params={genParams} onChange={setGenParams} />
               <button
@@ -242,6 +279,7 @@ function App() {
               providerId={providerId}
               model={model}
               agentMode={agentMode}
+              autoMode={agentMode && autoMode}
               genParams={genParams}
               systemPrompt={systemPrompt}
               onConversationCreated={(id) => {

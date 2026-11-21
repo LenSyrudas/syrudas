@@ -62,6 +62,32 @@ export const setAgentFolders = (folders: string[]) =>
     body: JSON.stringify({ folders }),
   }).then((r) => json<AgentFolders>(r))
 
+export interface AutoTools {
+  tools: string[]
+  gated: string[]
+}
+
+export const getAutoTools = () => fetch('/api/settings/auto-tools').then((r) => json<AutoTools>(r))
+
+export const setAutoTools = (tools: string[]) =>
+  fetch('/api/settings/auto-tools', {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ tools }),
+  }).then((r) => json<AutoTools>(r))
+
+// --- run control (agent pause/resume) ---
+
+export const pauseRun = (conversationId: string) =>
+  fetch(`/api/runs/${conversationId}/pause`, { method: 'POST' }).then((r) =>
+    json<{ ok: boolean }>(r),
+  )
+
+export const resumeRun = (conversationId: string) =>
+  fetch(`/api/runs/${conversationId}/resume`, { method: 'POST' }).then((r) =>
+    json<{ ok: boolean }>(r),
+  )
+
 // --- conversations ---
 
 export const listConversations = () =>
@@ -284,9 +310,13 @@ export interface ChatRequest {
   /** omit to continue/regenerate from existing history */
   message?: string
   agent_mode: boolean
+  /** auto mode: gated tools run without the per-call approval prompt */
+  auto_approve?: boolean
   system_prompt?: string
   /** server-side rewind-then-respond with rollback on empty failure */
   regenerate?: boolean
+  /** wait for the active run to finish instead of being refused with a 409 */
+  queue?: boolean
   params?: GenParams
 }
 

@@ -13,6 +13,8 @@ export interface DbMessage {
   created_at: string
   input_tokens: number | null
   output_tokens: number | null
+  /** 1 when this tool result ran unreviewed under auto mode; NULL otherwise */
+  auto_approved: number | null
 }
 
 export interface Conversation {
@@ -21,6 +23,7 @@ export interface Conversation {
   provider_id: string | null
   model: string | null
   agent_mode: number
+  auto_approve: number
   system_prompt: string
   created_at: string
   updated_at: string
@@ -37,6 +40,8 @@ export interface StreamEvent {
     | 'research_status'
     | 'progress'
     | 'usage'
+    | 'paused'
+    | 'resumed'
     | 'error'
     | 'done'
   text?: string
@@ -51,6 +56,8 @@ export interface StreamEvent {
   is_error?: boolean
   /** on tool_result: the user refused the call at the approval gate */
   denied?: boolean
+  /** on tool_result: a gated call ran without a prompt because auto mode was on */
+  auto_approved?: boolean
   message?: string
   phase?: string
   detail?: string

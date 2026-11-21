@@ -11,7 +11,7 @@ vi.mock('../api', () => ({
 }))
 
 const conv = (id: string, title: string, agent = 0): Conversation => ({
-  id, title, provider_id: 'p', model: 'm', agent_mode: agent,
+  id, title, provider_id: 'p', model: 'm', agent_mode: agent, auto_approve: 0,
   system_prompt: '', created_at: '', updated_at: '',
 })
 

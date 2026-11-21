@@ -12,6 +12,8 @@ export interface ToolItem {
   result?: string
   status: 'running' | 'done' | 'awaiting_approval' | 'denied' | 'error'
   approvalId?: string
+  /** a gated call that ran without a prompt because auto mode was on */
+  autoApproved?: boolean
 }
 
 /** Mirrors `tool_result_failed` in server/chat.py.
@@ -50,6 +52,33 @@ export interface ResearchItem {
   phase: string
   steps: string[]
   done: boolean
+}
+
+/** Fold consecutive tool items into one block for display.
+ *
+ *  A busy agent run used to paint one card per call, so a ten-step run was a
+ *  wall of cards pushing the actual answer off screen. Grouping only ever
+ *  joins ADJACENT tool items - text between calls breaks the run, because the
+ *  narration is part of the story - and a single tool call is left alone, so
+ *  quiet runs look exactly as they did.
+ */
+export type ThreadBlock = ChatItem | { kind: 'tool-group'; items: ToolItem[] }
+
+export function groupToolRuns(items: ChatItem[]): ThreadBlock[] {
+  const blocks: ThreadBlock[] = []
+  for (const item of items) {
+    if (item.kind === 'tool') {
+      const last = blocks[blocks.length - 1]
+      if (last && last.kind === 'tool-group') {
+        last.items.push(item)
+      } else {
+        blocks.push({ kind: 'tool-group', items: [item] })
+      }
+    } else {
+      blocks.push(item)
+    }
+  }
+  return blocks
 }
 
 export interface Usage {
@@ -124,6 +153,8 @@ export function itemsFromMessages(conv: Conversation): ChatItem[] {
       if (tool) {
         tool.result = m.content
         tool.status = statusForResult(m.content ?? '')
+        // the live stream marks auto-approved calls; keep the badge on reload
+        if (m.auto_approved === 1) tool.autoApproved = true
       }
     }
   }
@@ -200,6 +231,7 @@ export function applyEvent(prev: ChatItem[], ev: StreamEvent): ChatItem[] {
         next[idx] = {
           ...tool,
           result: ev.content ?? '',
+          autoApproved: ev.auto_approved ?? tool.autoApproved,
           // the server classifies; fall back to the same rule so a live event
           // and the reloaded row can never disagree about the same result
           status:

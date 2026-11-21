@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   applyEvent,
   fileBlock,
+  groupToolRuns,
   itemsFromMessages,
   parseUserContent,
   statusForResult,
@@ -18,11 +19,11 @@ function run(events: StreamEvent[], start: ChatItem[] = []): ChatItem[] {
 
 const msg = (m: Partial<DbMessage>): DbMessage => ({
   id: 'm', role: 'user', content: '', tool_calls: null, tool_call_id: null,
-  created_at: '2026-01-01', input_tokens: null, output_tokens: null, ...m,
+  created_at: '2026-01-01', input_tokens: null, output_tokens: null, auto_approved: null, ...m,
 })
 
 const conv = (messages: DbMessage[]): Conversation => ({
-  id: 'c', title: 't', provider_id: 'p', model: 'm', agent_mode: 0,
+  id: 'c', title: 't', provider_id: 'p', model: 'm', agent_mode: 0, auto_approve: 0,
   system_prompt: '', created_at: '', updated_at: '', messages,
 })
 
@@ -180,6 +181,58 @@ describe('applyEvent — tool calls and approval', () => {
   it('ignores a result for a tool call it never saw', () => {
     const items = run([{ type: 'tool_result', tool_call_id: 'ghost', content: 'x' }])
     expect(items).toHaveLength(0)
+  })
+
+  it('carries the auto_approved marker from the result onto the call', () => {
+    const items = run([
+      { type: 'tool_call', tool_call: { id: 'g', name: 'shell', arguments: {} } },
+      {
+        type: 'tool_result',
+        tool_call_id: 'g',
+        content: 'exit code: 0',
+        auto_approved: true,
+      },
+    ])
+    expect(items[0]).toMatchObject({ kind: 'tool', status: 'done', autoApproved: true })
+  })
+
+  it('a manually approved call keeps no auto marker', () => {
+    const items = run([
+      { type: 'tool_call', tool_call: { id: 'm', name: 'shell', arguments: {} } },
+      { type: 'tool_result', tool_call_id: 'm', content: 'exit code: 0', auto_approved: false },
+    ])
+    expect(items[0]).toMatchObject({ kind: 'tool', status: 'done', autoApproved: false })
+  })
+})
+
+describe('groupToolRuns', () => {
+  const tool = (id: string): ChatItem => ({
+    kind: 'tool',
+    call: { id, name: 'shell', arguments: {} },
+    status: 'done',
+  })
+  const text = (s: string): ChatItem => ({ kind: 'assistant', content: s })
+
+  it('folds adjacent tool calls into one group', () => {
+    const blocks = groupToolRuns([tool('a'), tool('b'), tool('c')])
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]).toMatchObject({ kind: 'tool-group' })
+    expect((blocks[0] as { items: unknown[] }).items).toHaveLength(3)
+  })
+
+  it('text between calls breaks the run - narration stays in place', () => {
+    const blocks = groupToolRuns([tool('a'), text('now reading'), tool('b')])
+    expect(blocks.map((b) => b.kind)).toEqual(['tool-group', 'assistant', 'tool-group'])
+  })
+
+  it('leaves non-tool items and a lone call in order', () => {
+    const blocks = groupToolRuns([{ kind: 'user', content: 'go' }, tool('a'), text('done')])
+    expect(blocks.map((b) => b.kind)).toEqual(['user', 'tool-group', 'assistant'])
+    expect((blocks[1] as { items: unknown[] }).items).toHaveLength(1)
+  })
+
+  it('handles an empty thread', () => {
+    expect(groupToolRuns([])).toEqual([])
   })
 })
 

@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   detectProviders,
+  getAutoTools,
   getConversation,
+  pauseRun,
+  resumeRun,
   rewindConversation,
+  setAutoTools,
   streamChat,
   streamResearch,
   uploadAttachment,
@@ -11,11 +15,12 @@ import type { Attachment, ChatRequest, GenParams } from '../api'
 import {
   applyEvent,
   fileBlock,
+  groupToolRuns,
   itemsFromMessages,
   parseUserContent,
   usageLabel,
 } from '../chatItems'
-import type { ChatItem } from '../chatItems'
+import type { ChatItem, ToolItem } from '../chatItems'
 import { copyToClipboard } from '../clipboard'
 import type { Conversation, StreamEvent } from '../types'
 import Markdown from './Markdown'
@@ -45,6 +50,60 @@ function CopyButton({ text, className = '' }: { text: string; className?: string
   )
 }
 
+/** Consecutive tool calls as one collapsible block.
+ *
+ *  It forces itself open while anything inside is running or awaiting
+ *  approval - an approval prompt hidden in a collapsed group would stall the
+ *  run with no visible reason - and folds back once the run settles, unless
+ *  the user opened it by hand.
+ */
+function ToolGroup({
+  items,
+  onResolved,
+  onAlwaysAllow,
+}: {
+  items: ToolItem[]
+  onResolved: (item: ToolItem, approved: boolean) => void
+  onAlwaysAllow?: (toolName: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const active = items.some(
+    (it) => it.status === 'running' || it.status === 'awaiting_approval',
+  )
+  const shown = open || active
+  const failed = items.filter((it) => it.status === 'error' || it.status === 'denied').length
+  const current = [...items]
+    .reverse()
+    .find((it) => it.status === 'running' || it.status === 'awaiting_approval')
+  const summary = current
+    ? current.status === 'awaiting_approval'
+      ? `⏸ approval: ${current.call.name}`
+      : `⏳ ${current.call.name}`
+    : failed > 0
+      ? `✗ ${failed} failed`
+      : '✓ done'
+  const names = [...new Set(items.map((it) => it.call.name))].join(', ')
+  return (
+    <div className={`tool-group ${active ? 'active' : ''}`}>
+      <div className="tool-group-head" onClick={() => setOpen(!open)} title={names}>
+        <span>
+          {shown ? '▾' : '▸'} 🔧 {items.length} tool steps
+        </span>
+        <span className="tool-group-summary">{summary}</span>
+      </div>
+      {shown &&
+        items.map((it, i) => (
+          <ToolCallCard
+            key={i}
+            item={it}
+            onResolved={(approved) => onResolved(it, approved)}
+            onAlwaysAllow={onAlwaysAllow}
+          />
+        ))}
+    </div>
+  )
+}
+
 export interface Draft {
   input: string
   pending: Attachment[]
@@ -57,6 +116,8 @@ interface Props {
   providerId: string
   model: string
   agentMode: boolean
+  /** auto mode: gated tools run without the per-call approval prompt */
+  autoMode: boolean
   genParams: GenParams
   systemPrompt: string
   onConversationCreated: (id: string) => void
@@ -76,6 +137,7 @@ export default function ChatView({
   providerId,
   model,
   agentMode,
+  autoMode,
   genParams,
   systemPrompt,
   onConversationCreated,
@@ -109,6 +171,67 @@ export default function ChatView({
     }
   }
   const [streaming, setStreaming] = useState(false)
+  // queued follow-ups share the streaming flag with the active run, so a
+  // count, not a boolean: the last finisher turns it off
+  const activeStreams = useRef(0)
+  const streamStarted = () => {
+    activeStreams.current += 1
+    setStreaming(true)
+  }
+  const streamEnded = () => {
+    activeStreams.current = Math.max(0, activeStreams.current - 1)
+    if (activeStreams.current === 0) setStreaming(false)
+  }
+  // follow-ups sent while a run is active, waiting their turn server-side
+  const [queued, setQueued] = useState<
+    { id: number; text: string; controller: AbortController }[]
+  >([])
+  // a run parked at a step boundary; Stop still works from here
+  const [paused, setPaused] = useState(false)
+  // tool names trusted via "Always allow" / Settings - kept here so the
+  // approval card can add to the list without a Settings round-trip
+  const [autoTools, setAutoToolsList] = useState<string[]>([])
+  useEffect(() => {
+    getAutoTools()
+      .then((r) => setAutoToolsList(r.tools))
+      .catch(console.error)
+  }, [])
+
+  async function alwaysAllow(name: string) {
+    if (autoTools.includes(name)) return
+    try {
+      const r = await setAutoTools([...autoTools, name])
+      setAutoToolsList(r.tools)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+  // elapsed seconds for the run-status line; resets each run
+  const [elapsed, setElapsed] = useState(0)
+  // tokens used by the current run (not the whole conversation), for the
+  // status line; usage events accumulate, each send resets
+  const [runTokens, setRunTokens] = useState(0)
+  useEffect(() => {
+    if (!streaming) return
+    const t0 = Date.now()
+    setElapsed(0)
+    const id = window.setInterval(
+      () => setElapsed(Math.floor((Date.now() - t0) / 1000)),
+      1000,
+    )
+    return () => window.clearInterval(id)
+  }, [streaming])
+
+  // Esc stops the active run - reaching for the Stop button mid-runaway is
+  // exactly when the mouse is hardest to find
+  useEffect(() => {
+    if (!streaming) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') abortRef.current?.abort()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [streaming])
   // busy covers rewind round-trips before streaming starts; busyRef is the
   // SYNCHRONOUS re-entrancy guard (React state lags awaits, so a double-click
   // would otherwise rewind twice and destroy an extra user turn)
@@ -166,9 +289,31 @@ export default function ChatView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId])
 
+  // Follow the stream only while the user is already at the bottom. Scrolling
+  // up means "hold still, I'm reading" - yanking the thread back down on every
+  // token is what made agent runs feel jumpy. A floating button offers the
+  // way back to the live edge.
+  const stickRef = useRef(true)
+  const [detached, setDetached] = useState(false)
+
+  function handleScroll() {
+    const el = scrollRef.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    stickRef.current = atBottom
+    setDetached(!atBottom)
+  }
+
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+    const el = scrollRef.current
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight
   }, [items])
+
+  function jumpToLatest() {
+    stickRef.current = true
+    setDetached(false)
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+  }
 
   function handleEvent(ev: StreamEvent) {
     if (ev.type === 'meta' && ev.conversation_id) {
@@ -177,6 +322,11 @@ export default function ChatView({
         onConversationCreated(ev.conversation_id)
       }
       return
+    }
+    if (ev.type === 'paused') setPaused(true)
+    if (ev.type === 'resumed') setPaused(false)
+    if (ev.type === 'usage') {
+      setRunTokens((t) => t + (ev.input_tokens ?? 0) + (ev.output_tokens ?? 0))
     }
     setItems((prev) => applyEvent(prev, ev))
   }
@@ -189,7 +339,9 @@ export default function ChatView({
   }
 
   async function runStream(req: ChatRequest) {
-    setStreaming(true)
+    streamStarted()
+    setRunTokens(0)
+    setPaused(false)
     const controller = new AbortController()
     abortRef.current = controller
     try {
@@ -199,19 +351,67 @@ export default function ChatView({
         setItems((prev) => [...prev, { kind: 'error', content: String(e) }])
       }
     } finally {
-      setStreaming(false)
+      streamEnded()
+      setPaused(false)
       abortRef.current = null
       onStreamEnd()
     }
   }
 
+  /** A message sent while a run is active: wait server-side for the run to
+   *  finish, then stream as usual. Cancelling the chip aborts the wait. */
+  function queueFollowUp(message: string) {
+    const controller = new AbortController()
+    const id = Date.now() + Math.random()
+    setQueued((q) => [...q, { id, text: message, controller }])
+    streamStarted()
+    ;(async () => {
+      try {
+        await streamChat(
+          {
+            conversation_id: convIdRef.current ?? undefined,
+            provider_id: providerId,
+            model,
+            message,
+            agent_mode: agentMode,
+            auto_approve: autoMode,
+            params: cleanParams(),
+            queue: true,
+          },
+          handleEvent,
+          controller.signal,
+        )
+      } catch (e) {
+        if ((e as Error).name !== 'AbortError') {
+          setItems((prev) => [...prev, { kind: 'error', content: String(e) }])
+        }
+      } finally {
+        setQueued((q) => q.filter((x) => x.id !== id))
+        streamEnded()
+        onStreamEnd()
+      }
+    })()
+  }
+
   async function send() {
     const typed = input.trim()
-    if ((!typed && pending.length === 0) || streaming || busyRef.current || uploading || !providerId || !model) return
+    // a run is going: queue the follow-up instead of refusing it. Attachments
+    // stay out of the queue - the chip has no way to show what was attached,
+    // and by fire time the context may have changed anyway
+    if (streaming) {
+      if (!typed || pending.length > 0 || uploading || !providerId || !model || !convIdRef.current) return
+      setInput('')
+      queueFollowUp(typed)
+      return
+    }
+    if ((!typed && pending.length === 0) || busyRef.current || uploading || !providerId || !model) return
     const message = [typed, ...pending.map(fileBlock)].filter(Boolean).join('\n\n')
     setInput('')
     setPending([])
     setIsResearch(false) // a normal turn makes this an ordinary conversation
+    // sending always returns to the live edge, wherever the user had scrolled
+    stickRef.current = true
+    setDetached(false)
     setItems((prev) => [...prev, { kind: 'user', content: message }])
     await runStream({
       conversation_id: convIdRef.current ?? undefined,
@@ -219,6 +419,7 @@ export default function ChatView({
       model,
       message,
       agent_mode: agentMode,
+      auto_approve: autoMode,
       // creation only: existing conversations are edited via PATCH, so a
       // stale tab can't clobber a prompt changed elsewhere
       system_prompt: convIdRef.current ? undefined : systemPrompt || undefined,
@@ -233,7 +434,8 @@ export default function ChatView({
     setInput('')
     setIsResearch(true)
     setItems((prev) => [...prev, { kind: 'user', content: typed }])
-    setStreaming(true)
+    streamStarted()
+    setRunTokens(0)
     const controller = new AbortController()
     abortRef.current = controller
     try {
@@ -247,7 +449,7 @@ export default function ChatView({
         setItems((prev) => [...prev, { kind: 'error', content: String(e) }])
       }
     } finally {
-      setStreaming(false)
+      streamEnded()
       abortRef.current = null
       markResearchDone() // e.g. on abort, no 'done' event arrives
       onStreamEnd()
@@ -272,6 +474,7 @@ export default function ChatView({
         provider_id: providerId,
         model,
         agent_mode: agentMode,
+        auto_approve: autoMode,
         regenerate: true,
         params: cleanParams(),
       })
@@ -339,6 +542,17 @@ export default function ChatView({
   }
 
   const canSend = Boolean(providerId && model)
+  const toolCount = items.filter((it) => it.kind === 'tool').length
+  const lastTool = [...items].reverse().find((it): it is ToolItem => it.kind === 'tool')
+  const runActivity = paused
+    ? 'paused'
+    : lastTool?.status === 'awaiting_approval'
+      ? `waiting for approval: ${lastTool.call.name}`
+      : lastTool?.status === 'running'
+        ? `running ${lastTool.call.name}`
+        : 'thinking'
+  const elapsedLabel =
+    elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`
   const lastUserIndex = items.map((it) => it.kind).lastIndexOf('user')
   const canRewind =
     Boolean(convIdRef.current) && !streaming && !busy && canSend && lastUserIndex >= 0 &&
@@ -346,7 +560,7 @@ export default function ChatView({
 
   return (
     <div className="chat">
-      <div className="thread" ref={scrollRef}>
+      <div className="thread" ref={scrollRef} onScroll={handleScroll}>
         {items.length === 0 && (
           <div className="thread-empty">
             <div className="thread-empty-logo">👁</div>
@@ -354,7 +568,9 @@ export default function ChatView({
             <p>
               {canSend
                 ? agentMode
-                  ? 'Agent mode: the model can plan and use tools. Shell commands, web fetches and writes outside the workspace wait for your approval.'
+                  ? autoMode
+                    ? 'Auto mode: the model plans and uses tools on its own — shell commands, web fetches and writes outside the workspace run without asking.'
+                    : 'Agent mode: the model can plan and use tools. Shell commands, web fetches and writes outside the workspace wait for your approval.'
                   : 'Ask anything. Swap models any time from the picker above.'
                 : (detectMsg ||
                     'No model backend yet. Start Ollama or LM Studio, then look again — or add a provider by hand in Settings.')}
@@ -372,7 +588,22 @@ export default function ChatView({
             )}
           </div>
         )}
-        {items.map((item, i) => {
+        {groupToolRuns(items).map((block, i) => {
+          // a run of 2+ adjacent tool calls collapses into one block; a lone
+          // call renders exactly as before
+          if (block.kind === 'tool-group' && block.items.length > 1) {
+            return (
+              <ToolGroup
+                key={i}
+                items={block.items}
+                onResolved={(it, approved) =>
+                  it.approvalId && markToolResolved(it.approvalId, approved)
+                }
+                onAlwaysAllow={alwaysAllow}
+              />
+            )
+          }
+          const item = block.kind === 'tool-group' ? block.items[0] : block
           switch (item.kind) {
             case 'user': {
               const { text, files } = parseUserContent(item.content)
@@ -430,6 +661,7 @@ export default function ChatView({
                   onResolved={(approved) =>
                     item.approvalId && markToolResolved(item.approvalId, approved)
                   }
+                  onAlwaysAllow={alwaysAllow}
                 />
               )
             case 'research':
@@ -453,9 +685,16 @@ export default function ChatView({
               )
           }
         })}
-        {streaming && items[items.length - 1]?.kind === 'user' && (
-          <div className="msg assistant thinking">…</div>
-        )}
+        {streaming && (() => {
+          // show the model is thinking right after sending, and between agent
+          // steps (last tool finished, next model turn not yet streaming) -
+          // those gaps used to look like the run had died
+          const last = items[items.length - 1]
+          const waitingOnModel =
+            last?.kind === 'user' ||
+            (last?.kind === 'tool' && last.status !== 'running' && last.status !== 'awaiting_approval')
+          return waitingOnModel ? <div className="msg assistant thinking">…</div> : null
+        })()}
         {canRewind && canSend && (
           <div className="thread-actions">
             <button className="btn btn-compact" title="Delete the last reply and generate a new one" onClick={regenerate}>
@@ -464,6 +703,25 @@ export default function ChatView({
           </div>
         )}
       </div>
+      {detached && items.length > 0 && (
+        <button
+          className="jump-latest"
+          title="Scroll back to the newest message"
+          aria-label="Scroll back to the newest message"
+          onClick={jumpToLatest}
+        >
+          ↓ {streaming ? 'following paused — back to the latest' : 'back to the latest'}
+        </button>
+      )}
+      {streaming && (
+        <div className="run-status" role="status" aria-live="polite">
+          <span className="run-dot" />
+          working · {elapsedLabel}
+          {toolCount > 0 && ` · ${toolCount} tool call${toolCount === 1 ? '' : 's'}`}
+          {runTokens > 0 && ` · ${runTokens.toLocaleString()} tokens`}
+          {` · ${runActivity}`}
+        </div>
+      )}
       <div
         className={`composer-area ${dragOver ? 'drag-over' : ''}`}
         onDragOver={(e) => {
@@ -477,6 +735,27 @@ export default function ChatView({
           if (canSend && e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
         }}
       >
+        {queued.length > 0 && (
+          <div className="pending-files">
+            {queued.map((q) => (
+              <span key={q.id} className="pending-chip" title={q.text}>
+                ⏳ queued: {q.text.slice(0, 40)}
+                {q.text.length > 40 ? '…' : ''}
+                <button
+                  className="icon-btn"
+                  title="Cancel this queued message"
+                  aria-label="Cancel this queued message"
+                  onClick={() => {
+                    q.controller.abort()
+                    setQueued((prev) => prev.filter((x) => x.id !== q.id))
+                  }}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         {(pending.length > 0 || uploading) && (
           <div className="pending-files">
             {pending.map((a, i) => (
@@ -531,9 +810,41 @@ export default function ChatView({
             }}
           />
           {streaming ? (
-            <button className="btn btn-danger" onClick={() => abortRef.current?.abort()}>
-              Stop
-            </button>
+            <>
+              {agentMode && convIdRef.current && (
+                <button
+                  className="btn"
+                  title={
+                    paused
+                      ? 'Resume the paused run'
+                      : 'Pause after the current step - the run parks until you resume or stop it'
+                  }
+                  onClick={() => {
+                    const id = convIdRef.current
+                    if (!id) return
+                    if (paused) resumeRun(id).catch(console.error)
+                    else pauseRun(id).catch(console.error)
+                  }}
+                >
+                  {paused ? '▶ Resume' : '⏸ Pause'}
+                </button>
+              )}
+              <button
+                className="btn btn-danger"
+                title="Stop the run (Esc)"
+                onClick={() => abortRef.current?.abort()}
+              >
+                Stop
+              </button>
+              <button
+                className="btn btn-primary"
+                title="Send this when the current run finishes"
+                disabled={!canSend || uploading || !input.trim() || pending.length > 0}
+                onClick={send}
+              >
+                Queue
+              </button>
+            </>
           ) : (
             <>
               {!convIdRef.current && (
