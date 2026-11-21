@@ -44,7 +44,17 @@ telemetry, no cloud component. The server binds to loopback and refuses anything
 - **Agent mode** — the model plans and calls tools: PowerShell (per-call approval),
   file read/write/list (workspace by default, plus folders you grant), web fetch and
   search, and **persistent memory** — durable facts carried across conversations,
-  reviewable and deletable in Settings
+  reviewable and deletable in Settings. The **Auto** toggle next to it switches to
+  auto mode: gated tools (shell, web fetch, writes outside the workspace) run
+  without the per-call prompt, and auto-approved calls are marked ⚡ in the thread.
+  Every overwrite the agent makes keeps the previous version under
+  `data/snapshots/`, so an unreviewed write is never unrecoverable. Between the
+  two sits per-tool trust: **Always allow** on an approval prompt (or Settings →
+  Agent auto-approve) stops the prompts for just that tool. Long runs can be
+  **paused** at a step boundary and resumed from the composer, and a follow-up
+  sent mid-run **queues** instead of being refused. The agent can also undo its
+  own edits with `file_restore`, and the keyboard works throughout: Esc stops a
+  run, Y/N answers an approval prompt
 - **Knowledge (local RAG)** — index files and folders into a local embedding index; the
   agent's `knowledge_search` tool quotes from them, so you can work with far more text
   than fits a context window. Needs any provider serving an embedding model
