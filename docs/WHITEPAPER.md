@@ -778,26 +778,53 @@ to any caller.
 
 ## 14. File attachments
 
-**In plain terms.** You can drag a file onto a message. The program pulls the
-readable text out of it and includes that text in what it sends. It handles
-plain text, code, spreadsheet exports and PDFs. Anything it cannot read — an
-image, a scanned document with no text in it — it refuses with a clear
-explanation rather than quietly sending gibberish.
+**In plain terms.** You can drag a file onto a message — or paste a screenshot
+straight in. Text files, code, spreadsheet exports and PDFs have their readable
+text pulled out and included in what is sent; anything unreadable is refused
+with a clear explanation rather than quietly sending gibberish. Images and
+videos go further: the model is sent the actual pixels. A video reaches it as a
+handful of frames sampled evenly across the clip, because frames are what a
+vision model can take in.
 
-Attachments follow a stateless pipeline that mirrors the rest of the system's
-preference for keeping state in one place. The client uploads a file to
-`POST /api/attachments`; the server extracts text — UTF-8 for text-like
+Text attachments follow a stateless pipeline that mirrors the rest of the
+system's preference for keeping state in one place. The client uploads a file
+to `POST /api/attachments`; the server extracts text — UTF-8 for text-like
 formats, pypdf for PDFs, binaries rejected, with a character cap and explicit
 truncation flags — and returns it. The client then embeds that text into the
-outgoing message inside `<file name="...">` delimiters.
+outgoing message inside `<file name="...">` delimiters. Storing the content
+*inside the message* keeps replay, backup and export trivial: the file is just
+message text, and the UI rebuilds its per-file chips from the same string.
 
-Storing attachment content *inside the message* rather than in a side table of
-blobs buys three properties at once: replaying history to any provider needs no
-special casing, because the file is just message text; backup and export are
-simply the database file; and the UI reconstructs collapsible per-file chips
-from the message text alone. The trade-off is larger message rows, which is
-acceptable at the capped sizes. For documents too large for the model's context
-window, the knowledge subsystem (Section 8) is the better path, and the two
+Images and videos take a deliberately different path, because pixels are not
+text and pretending otherwise costs real tokens. Uploads go to
+`POST /api/attachments/media` and are stored under `data/attachments/`: images
+downscaled to a 1600-pixel edge and re-encoded (a vision model cannot tell the
+result from a 12-megapixel original, and the base64 payload is a fraction of
+the size), videos kept whole for in-app playback with 8 frames sampled evenly
+across the duration written alongside. The message row carries only the
+attachment metadata (schema v4), and each provider adapter translates it into
+its own wire dialect — OpenAI content parts, Anthropic image blocks, Gemini
+`inline_data` — at the same edge where everything else about the backend is
+translated. Before anything is sent, the route asks the backend whether the
+selected model accepts images (OpenRouter's declared modality, Ollama's
+capabilities list, model-era heuristics for the hosted plugins) and refuses a
+text-only model with an explicit, actionable error. A backend that will not
+say is tried anyway: a wrong refusal blocks a working model, while a wrong
+attempt returns the backend's own error message.
+
+Two design notes complete the picture. Images count against the history budget
+at a per-image token estimate (video frames at one image each), so a
+photo-heavy conversation trims like any other rather than silently overflowing
+the window. And media deliberately breaks the text pipeline's rule of storing
+content inside the message: multi-megabyte blobs in the database would make
+every backup carry every image ever attached, so the files live on disk and the
+row holds metadata. Replay then needs a lookup in the store, and a file that
+has gone missing degrades to a bracketed note in the prompt rather than failing
+the turn — the same refusal to let housekeeping break a conversation that the
+tool-call repair rule embodies. Deleting a conversation removes its files;
+rewind and regenerate keep them, because editing a message should not destroy
+what it showed the model. For documents too large for the model's context
+window, the knowledge subsystem (Section 8) remains the better path, and the
 features compose: attach for a one-off, index for a corpus.
 
 ## 15. Security and privacy model
@@ -1124,16 +1151,16 @@ in a deeper sense than packaging: the shell tool spawns PowerShell directly,
 hardware detection reads WMI, the desktop shell targets WebView2, and the build
 and run scripts are PowerShell throughout. The web layer is portable Python, but
 a port would be genuine work rather than a packaging change, and everything below
-is written on the assumption that Windows remains the target. Multimodality is
-text-only: normalized message content is a string, a deliberate simplification
-that also means a vision-capable model can be selected but never fed an image.
-That mismatch was until recently advertised — the bundled catalogue recommended
-a vision model, and the attachment endpoint then refused images — and the
-catalogue entry has since been removed rather than left to promise something the
-program cannot accept. Key storage is plaintext on disk. Model *download*
-management is specific to Ollama.
+is written on the assumption that Windows remains the target. Multimodality now
+covers images and video, with two boundaries worth naming: video reaches the
+model as sampled frames, not motion — fast action between frames is invisible
+to it — and audio is not carried at all. The history is worth recording because
+this section is meant to be a ledger: the model catalogue once recommended a
+vision model the attachment endpoint then refused; the entry was first removed,
+and the capability itself has since shipped (Section 14). Key storage is
+plaintext on disk. Model *download* management is specific to Ollama.
 
-**Closed since the previous edition.** Five items this section previously listed as
+**Closed since the previous edition.** Six items this section previously listed as
 open are now done, and are named here rather than quietly dropped, because a
 limitations section that only ever grows is as dishonest as one that is vague. The
 context budget is derived from the selected model's context window and re-applied
@@ -1141,7 +1168,9 @@ every agent step rather than once per turn (Section 5). Agent mode fences tool o
 as data, in both the live loop and on replay (Section 15). MCP tools are gated per
 call, and can no longer shadow a builtin's name (Section 6). `file_write` refuses the
 partial-view write-backs that silently destroyed the unread remainder of a file
-(Section 6). And a run now has a record (below).
+(Section 6). Image and video input is carried through the normalized message
+schema and translated at the provider edge (Section 14). And a run now has a
+record (below).
 
 **Runtime limitations.** These matter more day to day than the boundaries above. The
 file tools offer read, whole-file write, and list — no patch-style edit and no
@@ -1187,8 +1216,8 @@ them earlier than their urgency alone would suggest.
 **Direction.** In rough order of value: a patch-style file edit with pagination and
 search, which is the runtime limitation with the widest daily reach; schema
 validation of tool arguments at the dispatch boundary; run context threaded through
-the tool interface, which unblocks several of the above at once; image input carried
-through the same normalized schema; OS-keychain key storage; and an optional local
+the tool interface, which unblocks several of the above at once; OS-keychain key
+storage; and an optional local
 token on the `/v1` hub for shared machines. Productivity integrations — email,
 calendar, notes — remain the largest gap relative to a full personal-assistant
 suite, and each is effectively its own subsystem that would be evaluated on its own
@@ -1196,7 +1225,7 @@ terms rather than folded in for completeness.
 
 A note on how this section is maintained, since it is the one most likely to rot.
 Everything above was checked against the code for this edition rather than carried
-forward, which is how five items came to move into "closed" at once. A roadmap
+forward, which is how six items came to move into "closed" at once. A roadmap
 inherited unread is worse than no roadmap: it tells the reader the project does not
 know what it has built.
 
