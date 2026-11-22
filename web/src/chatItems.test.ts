@@ -304,6 +304,25 @@ describe('itemsFromMessages — rebuilding a saved conversation', () => {
   it('handles a conversation with no messages', () => {
     expect(itemsFromMessages(conv([]))).toEqual([])
   })
+
+  it('keeps image/video attachments on the user item', () => {
+    const atts = [
+      { id: 'a', name: 'photo.png', mime: 'image/png', kind: 'image' as const },
+      { id: 'b', name: 'clip.mp4', mime: 'video/mp4', kind: 'video' as const, frames: 8 },
+    ]
+    const items = itemsFromMessages(
+      conv([msg({ role: 'user', content: 'what do you see?', attachments: atts })]),
+    )
+    expect(items).toEqual([
+      { kind: 'user', content: 'what do you see?', media: atts },
+    ])
+  })
+
+  it('leaves media undefined for a plain user message', () => {
+    const items = itemsFromMessages(conv([msg({ role: 'user', content: 'hi' })]))
+    expect(items[0]).toEqual({ kind: 'user', content: 'hi' })
+    expect('media' in items[0]).toBe(false)
+  })
 })
 
 describe('parseUserContent / fileBlock', () => {

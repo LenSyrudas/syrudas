@@ -35,7 +35,9 @@ telemetry, no cloud component. The server binds to loopback and refuses anything
 
 - **Chat** — streaming replies, markdown with syntax highlighting and per-block copy,
   SQLite history with search and rename, file attachments (code, text, CSV, JSON, logs,
-  PDFs), regenerate and edit, per-conversation system prompts with presets,
+  PDFs), **image and video attachments** for vision models (videos go to the model as
+  evenly-sampled frames; paste, drag & drop or browse), regenerate and edit,
+  per-conversation system prompts with presets,
   temperature/max-token controls, per-reply token counts, markdown export
 - **Any model** — provider *types* are Python plugins; provider *instances* are
   configured in the UI. The builtin OpenAI-compatible adapter covers Ollama, LM Studio,

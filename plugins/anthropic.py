@@ -27,6 +27,7 @@ from typing import AsyncIterator, Optional
 import httpx
 
 from server.providers.base import ConfigField, ModelProvider
+from server import media
 from server.schemas import GenParams, Message, ModelInfo, StreamEvent, ToolCall, ToolSpec
 
 API_VERSION = "2023-06-01"
@@ -72,6 +73,32 @@ def _wire_messages(messages: list[Message]) -> tuple[Optional[str], list[dict]]:
                 last["content"].append(block)
             else:
                 out.append({"role": "user", "content": [block]})
+        elif m.role == "user" and m.attachments:
+            blocks: list[dict] = []
+            for att in m.attachments:
+                if att.kind == "video":
+                    frames = media.video_frames_b64(att.model_dump())
+                    blocks.append({"type": "text", "text":
+                                   f"[{att.name}: {len(frames)} frames sampled from a video]"
+                                   if frames else
+                                   f"[{att.name}: video attached, but its frames are missing]"})
+                    blocks.extend(
+                        {"type": "image", "source": {"type": "base64",
+                                                     "media_type": "image/jpeg",
+                                                     "data": b}}
+                        for b in frames)
+                else:
+                    found = media.image_b64(att.model_dump())
+                    blocks.append(
+                        {"type": "image", "source": {"type": "base64",
+                                                     "media_type": found[0],
+                                                     "data": found[1]}}
+                        if found else
+                        {"type": "text", "text":
+                         f"[{att.name}: image attached, but the file is missing]"})
+            if m.content:
+                blocks.append({"type": "text", "text": m.content})
+            out.append({"role": "user", "content": blocks})
         elif m.content:
             out.append({"role": m.role, "content": m.content})
     return system, out
@@ -139,6 +166,15 @@ class AnthropicProvider(ModelProvider):
             ModelInfo(id=m["id"], name=m.get("display_name"))
             for m in data.get("data", []) if "id" in m
         ]
+
+    async def supports_vision(self, model: str) -> Optional[bool]:
+        # every Claude from 3.0 on takes images; claude-2.x predates that
+        lowered = model.lower()
+        if "claude-2" in lowered or "claude-instant" in lowered:
+            return False
+        if "claude" in lowered:
+            return True
+        return None
 
     async def chat(
         self,

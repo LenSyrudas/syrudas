@@ -14,11 +14,11 @@ import logging
 
 from . import db, runs
 from .config import (
-    CHARS_PER_TOKEN, MAX_HISTORY_CHARS, RESPONSE_RESERVE_TOKENS,
-    TOOL_SCHEMA_RESERVE_TOKENS,
+    CHARS_PER_TOKEN, IMAGE_TOKEN_ESTIMATE, MAX_HISTORY_CHARS,
+    RESPONSE_RESERVE_TOKENS, TOOL_SCHEMA_RESERVE_TOKENS,
 )
 from .providers.base import ModelProvider
-from .schemas import GenParams, Message, StreamEvent, ToolCall
+from .schemas import GenParams, MediaRef, Message, StreamEvent, ToolCall
 
 log = logging.getLogger(__name__)
 
@@ -120,9 +120,13 @@ async def build_history(conv: dict, budget: int = MAX_HISTORY_CHARS) -> list[Mes
         tool_calls = None
         if m["tool_calls"]:
             tool_calls = [ToolCall(**tc) for tc in m["tool_calls"]]
+        attachments = None
+        if m.get("attachments"):
+            attachments = [MediaRef(**a) for a in m["attachments"]]
         messages.append(Message(
             role=m["role"], content=m["content"] or "",
             tool_calls=tool_calls, tool_call_id=m["tool_call_id"],
+            attachments=attachments,
         ))
     # fence before trimming so the budget accounts for the markers it adds
     return trim_history(fence_tool_messages(repair_tool_calls(messages)), budget)
@@ -170,6 +174,12 @@ def _msg_chars(m: Message) -> int:
     n = len(m.content or "")
     for tc in m.tool_calls or []:
         n += len(tc.name) + len(json.dumps(tc.arguments))
+    # an image costs the model ~a thousand tokens, not the zero characters of
+    # its metadata - without this, a photo-heavy chat blows straight through
+    # the window the budget is meant to respect
+    image_cost = int(IMAGE_TOKEN_ESTIMATE * CHARS_PER_TOKEN)
+    for att in m.attachments or []:
+        n += image_cost * (att.frames or 1) if att.kind == "video" else image_cost
     return n
 
 

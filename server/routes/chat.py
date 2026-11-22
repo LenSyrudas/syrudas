@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from .. import db, runs
+from .. import db, media, runs
 from ..chat import stream_plain_chat, title_from
 from ..providers.registry import create_provider
 from ..schemas import GenParams, Message
@@ -35,6 +35,9 @@ class ChatRequest(BaseModel):
     regenerate: bool = False
     # a follow-up sent while a run is active: wait for it instead of 409ing
     queue: bool = False
+    # ids of uploaded image/video attachments (POST /attachments/media) to
+    # store on the user message; their pixels go to the model on later turns
+    attachments: Optional[list[str]] = None
     params: Optional[GenParams] = None
 
 
@@ -47,6 +50,29 @@ async def chat(req: ChatRequest):
     inst = await db.get_provider_instance(req.provider_id)
     if not inst:
         raise HTTPException(400, "Unknown provider instance")
+
+    # resolve attachment ids before anything is persisted: a bad id should
+    # fail the send, not create an empty conversation around the error
+    media_metas: list[dict] = []
+    for att_id in req.attachments or []:
+        meta = media.load_meta(att_id)
+        if not meta:
+            raise HTTPException(400, f"Unknown attachment: {att_id}")
+        media_metas.append(meta)
+
+    provider = create_provider(inst["type_id"], inst["config"])
+    if media_metas:
+        try:
+            vision = await provider.supports_vision(req.model)
+        except Exception:  # a failed probe must never block a send
+            log.debug("Vision probe failed for %s", req.model, exc_info=True)
+            vision = None
+        if vision is False:
+            raise HTTPException(
+                400,
+                f"'{req.model}' doesn't accept images. Pick a vision-capable "
+                "model (llava, qwen-vl, llama-vision, gpt-4o...) or remove "
+                "the attachment.")
 
     if req.conversation_id:
         conv = await db.get_conversation(req.conversation_id)
@@ -65,7 +91,7 @@ async def chat(req: ChatRequest):
         )
         conv = await db.get_conversation(conv["id"])
     else:
-        if not req.message:
+        if not req.message and not media_metas:
             raise HTTPException(400, "A new conversation needs a message")
         conv = await db.create_conversation(
             req.provider_id, req.model, req.agent_mode, req.system_prompt,
@@ -85,9 +111,9 @@ async def chat(req: ChatRequest):
                                               inclusive=True)
                 runs.bump_generation(conv["id"])
 
-    if not req.message and not await db.get_last_user_message(conv["id"]):
+    if not req.message and not media_metas \
+            and not await db.get_last_user_message(conv["id"]):
         raise HTTPException(400, "Nothing to continue: the conversation has no user message")
-    provider = create_provider(inst["type_id"], inst["config"])
 
     async def event_stream() -> AsyncIterator[str]:
         yield _ndjson({"type": "meta", "conversation_id": conv["id"], "title": conv["title"]})
@@ -103,14 +129,15 @@ async def chat(req: ChatRequest):
             yield _ndjson({"type": "done"})
             return
         try:
-            if req.message:
+            if req.message or media_metas:
                 # adding the user turn here - after the lock, not back in the
                 # route - keeps a queued follow-up BEHIND the active run's
                 # reply in history instead of interleaved into it. The retitle
                 # covers resending into a conversation whose user turns were
                 # all removed, so the sidebar doesn't show deleted text.
                 had_user = await db.get_last_user_message(conv["id"]) is not None
-                await db.add_message(conv["id"], "user", req.message)
+                await db.add_message(conv["id"], "user", req.message,
+                                     attachments=media_metas or None)
                 if not had_user and req.conversation_id:
                     await db.update_conversation(conv["id"], title=title_from(req.message))
                     conv["title"] = title_from(req.message)

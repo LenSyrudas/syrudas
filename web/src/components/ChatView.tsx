@@ -10,6 +10,7 @@ import {
   streamChat,
   streamResearch,
   uploadAttachment,
+  uploadMedia,
 } from '../api'
 import type { Attachment, ChatRequest, GenParams } from '../api'
 import {
@@ -22,6 +23,7 @@ import {
 } from '../chatItems'
 import type { ChatItem, ToolItem } from '../chatItems'
 import { copyToClipboard } from '../clipboard'
+import { mediaUrl } from '../types'
 import type { Conversation, StreamEvent } from '../types'
 import Markdown from './Markdown'
 import ToolCallCard from './ToolCallCard'
@@ -258,8 +260,17 @@ export default function ChatView({
     setUploading(true)
     for (const file of Array.from(list)) {
       try {
-        const att = await uploadAttachment(file)
-        setPending((prev) => [...prev, att])
+        if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+          // pixels, not text: stored server-side, the message carries the id
+          const meta = await uploadMedia(file)
+          setPending((prev) => [
+            ...prev,
+            { name: meta.name, content: '', chars: 0, truncated: false, media: meta },
+          ])
+        } else {
+          const att = await uploadAttachment(file)
+          setPending((prev) => [...prev, att])
+        }
       } catch (e) {
         setItems((prev) => [...prev, { kind: 'error', content: `Could not attach ${file.name}: ${e}` }])
       }
@@ -405,14 +416,21 @@ export default function ChatView({
       return
     }
     if ((!typed && pending.length === 0) || busyRef.current || uploading || !providerId || !model) return
-    const message = [typed, ...pending.map(fileBlock)].filter(Boolean).join('\n\n')
+    // text attachments ride inside the message body; media attachments go by
+    // id and are stored on the message row so later turns can resend pixels
+    const textAtts = pending.filter((a) => !a.media)
+    const mediaRefs = pending.flatMap((a) => (a.media ? [a.media] : []))
+    const message = [typed, ...textAtts.map(fileBlock)].filter(Boolean).join('\n\n')
     setInput('')
     setPending([])
     setIsResearch(false) // a normal turn makes this an ordinary conversation
     // sending always returns to the live edge, wherever the user had scrolled
     stickRef.current = true
     setDetached(false)
-    setItems((prev) => [...prev, { kind: 'user', content: message }])
+    setItems((prev) => [
+      ...prev,
+      { kind: 'user', content: message, ...(mediaRefs.length ? { media: mediaRefs } : {}) },
+    ])
     await runStream({
       conversation_id: convIdRef.current ?? undefined,
       provider_id: providerId,
@@ -420,6 +438,7 @@ export default function ChatView({
       message,
       agent_mode: agentMode,
       auto_approve: autoMode,
+      attachments: mediaRefs.length ? mediaRefs.map((m) => m.id) : undefined,
       // creation only: existing conversations are edited via PATCH, so a
       // stale tab can't clobber a prompt changed elsewhere
       system_prompt: convIdRef.current ? undefined : systemPrompt || undefined,
@@ -497,9 +516,17 @@ export default function ChatView({
       await loadConversation(convId)
       const { text, files } = parseUserContent(res.removed_user_content ?? '')
       setInput(text)
-      setPending(files.map((f) => ({
-        name: f.name, content: f.content, chars: f.content.length, truncated: false,
-      })))
+      // media comes back as pending chips with their store ids intact, so
+      // resending attaches the same files instead of re-uploading
+      setPending([
+        ...files.map((f) => ({
+          name: f.name, content: f.content, chars: f.content.length, truncated: false,
+        })),
+        ...(res.removed_user_attachments ?? []).map((m) => ({
+          name: m.name, content: '', chars: 0, truncated: false,
+          media: { ...m, url: mediaUrl(m.id) },
+        })),
+      ])
       textareaRef.current?.focus()
     } catch (e) {
       setItems((prev) => [...prev, { kind: 'error', content: String(e) }])
@@ -610,6 +637,26 @@ export default function ChatView({
               return (
                 <div key={i} className="msg user">
                   <div className="bubble">
+                    {item.media && item.media.length > 0 && (
+                      <div className="bubble-media">
+                        {item.media.map((m, mi) =>
+                          m.kind === 'image' ? (
+                            <a key={mi} href={mediaUrl(m.id)} target="_blank" rel="noreferrer">
+                              <img className="bubble-image" src={mediaUrl(m.id)} alt={m.name} />
+                            </a>
+                          ) : (
+                            <video
+                              key={mi}
+                              className="bubble-video"
+                              controls
+                              preload="metadata"
+                              poster={`${mediaUrl(m.id)}?frame=1`}
+                              src={mediaUrl(m.id)}
+                            />
+                          ),
+                        )}
+                      </div>
+                    )}
                     {files.length > 0 && (
                       <div className="bubble-files">
                         {files.map((f, fi) => (
@@ -759,9 +806,29 @@ export default function ChatView({
         {(pending.length > 0 || uploading) && (
           <div className="pending-files">
             {pending.map((a, i) => (
-              <span key={i} className="pending-chip" title={`${a.chars.toLocaleString()} chars`}>
-                📎 {a.name}
-                {a.truncated ? ' (truncated)' : ''}
+              <span
+                key={i}
+                className="pending-chip"
+                title={a.media ? `${a.media.mime} · ${a.name}` : `${a.chars.toLocaleString()} chars`}
+              >
+                {a.media ? (
+                  a.media.kind === 'image' ? (
+                    <>
+                      <img className="pending-thumb" src={a.media.url} alt="" />
+                      {a.name}
+                    </>
+                  ) : (
+                    <>
+                      🎬 {a.name}
+                      {a.media.frames ? ` (${a.media.frames} frames)` : ''}
+                    </>
+                  )
+                ) : (
+                  <>
+                    📎 {a.name}
+                    {a.truncated ? ' (truncated)' : ''}
+                  </>
+                )}
                 <button
                   className="icon-btn"
                   title="Remove attachment"
@@ -788,7 +855,7 @@ export default function ChatView({
           />
           <button
             className="btn attach-btn"
-            title="Attach files (text, code, CSV, JSON, PDF) - or drag & drop"
+            title="Attach files (text, code, CSV, JSON, PDF, images, video) - drag & drop or paste works too"
             aria-label="Attach files"
             disabled={!canSend || streaming}
             onClick={() => fileInputRef.current?.click()}
@@ -802,6 +869,14 @@ export default function ChatView({
             disabled={!canSend}
             rows={Math.min(8, Math.max(1, input.split('\n').length))}
             onChange={(e) => setInput(e.target.value)}
+            onPaste={(e) => {
+              // a copied screenshot lands as a file, not text - attach it
+              // instead of pasting a useless filename or nothing at all
+              if (e.clipboardData.files.length && canSend && !streaming) {
+                e.preventDefault()
+                addFiles(e.clipboardData.files)
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()

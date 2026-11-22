@@ -92,6 +92,7 @@ async def test_legacy_database_is_migrated_and_backed_up():
 
     assert {"input_tokens", "output_tokens"} <= cols, f"columns not added: {cols}"
     assert "auto_approved" in cols, f"messages not migrated: {cols}"
+    assert "attachments" in cols, f"messages not migrated: {cols}"
     assert "auto_approve" in conv_cols, f"conversations not migrated: {conv_cols}"
     assert version_of(path) == db.SCHEMA_VERSION
     assert [c["title"] for c in convs] == ["irreplaceable"], "existing data was lost"

@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 
 from fastapi import APIRouter, HTTPException
@@ -6,6 +7,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from .. import db, runs
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["conversations"])
 
@@ -51,7 +54,17 @@ async def delete_conversation(conv_id: str):
         raise HTTPException(
             409, "A response is still being generated for this conversation - stop it first.")
     runs.bump_generation(conv_id)
+    # attachments live outside the db; collect them before the rows go away,
+    # or every deleted chat leaks its images into the store forever
+    messages = await db.list_messages(conv_id)
     await db.delete_conversation(conv_id)
+    from .. import media
+    for m in messages:
+        for att in m.get("attachments") or []:
+            try:
+                media.delete_media(att["id"])
+            except OSError:
+                log.warning("Could not remove attachment %s", att.get("id"))
     return {"ok": True}
 
 
@@ -78,6 +91,10 @@ async def rewind_conversation(conv_id: str, body: RewindIn):
     return {
         "ok": True,
         "removed_user_content": last_user["content"] if body.include_last_user else None,
+        # edit restores these to the composer; they are NOT deleted from the
+        # store - resending reuses the same ids
+        "removed_user_attachments": (last_user.get("attachments")
+                                     if body.include_last_user else None),
     }
 
 
@@ -99,6 +116,13 @@ async def export_conversation(conv_id: str):
     for m in messages:
         lines.append(f"## {role_names.get(m['role'], m['role'])}")
         lines.append("")
+        for att in m.get("attachments") or []:
+            if att.get("kind") == "video":
+                lines.append(f"*🎬 video: {att['name']}"
+                             f" ({att.get('frames', '?')} frames sampled)*")
+            else:
+                lines.append(f"*📷 image: {att['name']}*")
+            lines.append("")
         if m["content"]:
             lines.append(m["content"])
             lines.append("")

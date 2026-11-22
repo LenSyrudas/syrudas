@@ -58,6 +58,16 @@ class ModelProvider(ABC):
         """
         return None
 
+    async def supports_vision(self, model: str) -> Optional[bool]:
+        """Whether a model accepts image input (optional capability).
+
+        Three-way: True/False when the backend says so, None when it will not
+        say - the caller tries anyway and lets the backend's own error speak,
+        because refusing on a guess would block backends that simply don't
+        advertise the capability.
+        """
+        return None
+
     async def embed(self, model: str, texts: list[str]) -> list[list[float]]:
         """Embed texts into vectors (optional capability; used by local RAG).
 

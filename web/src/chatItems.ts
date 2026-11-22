@@ -4,7 +4,7 @@
  *  rebuild — the two places where an off-by-one turn shows the user the wrong
  *  thing — can be unit tested without a browser.
  */
-import type { Conversation, StreamEvent, ToolCall } from './types'
+import type { Conversation, MediaRef, StreamEvent, ToolCall } from './types'
 
 export interface ToolItem {
   kind: 'tool'
@@ -87,7 +87,7 @@ export interface Usage {
 }
 
 export type ChatItem =
-  | { kind: 'user'; content: string }
+  | { kind: 'user'; content: string; media?: MediaRef[] }
   | { kind: 'assistant'; content: string; streaming?: boolean; usage?: Usage }
   | ToolItem
   | ResearchItem
@@ -129,7 +129,11 @@ export function itemsFromMessages(conv: Conversation): ChatItem[] {
   const loaded: ChatItem[] = []
   for (const m of conv.messages ?? []) {
     if (m.role === 'user') {
-      loaded.push({ kind: 'user', content: m.content })
+      loaded.push({
+        kind: 'user',
+        content: m.content,
+        ...(m.attachments?.length ? { media: m.attachments } : {}),
+      })
     } else if (m.role === 'assistant') {
       if (m.content) {
         // restore the persisted token counts so the readout survives a reload

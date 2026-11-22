@@ -4,6 +4,16 @@ export interface ToolCall {
   arguments: Record<string, unknown>
 }
 
+export interface MediaRef {
+  id: string
+  name: string
+  mime: string
+  kind: 'image' | 'video'
+  frames?: number
+}
+
+export const mediaUrl = (id: string) => `/api/attachments/file/${id}`
+
 export interface DbMessage {
   id: string
   role: 'user' | 'assistant' | 'tool' | 'system'
@@ -15,6 +25,8 @@ export interface DbMessage {
   output_tokens: number | null
   /** 1 when this tool result ran unreviewed under auto mode; NULL otherwise */
   auto_approved: number | null
+  /** image/video attachments on user messages; NULL otherwise */
+  attachments?: MediaRef[] | null
 }
 
 export interface Conversation {

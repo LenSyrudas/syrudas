@@ -34,8 +34,11 @@ if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 # controlled result, but onedir demonstrably did not buy what it was meant to,
 # and it costs a self-contained exe. Do not switch again on reasoning alone;
 # the fix for false positives is a code-signing certificate.
+# Pillow and OpenCV are real dependencies now (image/video attachments): the
+# lazy function-level imports in server/media.py are still seen by PyInstaller's
+# analysis, and hook-cv2 from the contrib set bundles the native parts.
 Write-Host "Building exe..."
-cmd /c "$python -m PyInstaller --noconfirm --clean --onefile --windowed --name SyrudasAI --icon tools\icon.ico --version-file tools\version_info.txt --add-data ""web/dist;web/dist"" --collect-submodules uvicorn --collect-all webview --exclude-module PIL desktop.py 2>&1"
+cmd /c "$python -m PyInstaller --noconfirm --clean --onefile --windowed --name SyrudasAI --icon tools\icon.ico --version-file tools\version_info.txt --add-data ""web/dist;web/dist"" --collect-submodules uvicorn --collect-all webview --collect-all cv2 desktop.py 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 
 Copy-Item dist\SyrudasAI.exe $root -Force

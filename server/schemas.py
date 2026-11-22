@@ -31,11 +31,26 @@ class ToolCall(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+class MediaRef(BaseModel):
+    """An image or video attached to a user message.
+
+    The binary lives in the attachments store (server/media.py); a message row
+    carries only this metadata. `frames` is the number of sampled frames for a
+    video - those frames, not the video itself, are what a model can see."""
+    id: str
+    name: str
+    mime: str
+    kind: Literal["image", "video"]
+    frames: Optional[int] = None
+    ext: Optional[str] = None  # stored file's extension, for locating the bytes
+
+
 class Message(BaseModel):
     role: Literal["system", "user", "assistant", "tool"]
     content: str = ""
     tool_calls: Optional[list[ToolCall]] = None  # on assistant messages
     tool_call_id: Optional[str] = None           # on tool-result messages
+    attachments: Optional[list[MediaRef]] = None  # on user messages
 
 
 class StreamEvent(BaseModel):

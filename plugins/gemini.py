@@ -24,6 +24,7 @@ from typing import Any, AsyncIterator, Optional
 import httpx
 
 from server.providers.base import ConfigField, ModelProvider
+from server import media
 from server.schemas import GenParams, Message, ModelInfo, StreamEvent, ToolCall, ToolSpec
 
 DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
@@ -69,6 +70,24 @@ def _wire_contents(messages: list[Message]) -> tuple[Optional[str], list[dict]]:
             _append("user", {"functionResponse": {
                 "name": name, "response": {"output": m.content or ""},
             }})
+        elif m.role == "user" and m.attachments:
+            for att in m.attachments:
+                if att.kind == "video":
+                    frames = media.video_frames_b64(att.model_dump())
+                    _append("user", {"text":
+                                     f"[{att.name}: {len(frames)} frames sampled from a video]"
+                                     if frames else
+                                     f"[{att.name}: video attached, but its frames are missing]"})
+                    for b in frames:
+                        _append("user", {"inline_data": {
+                            "mime_type": "image/jpeg", "data": b}})
+                else:
+                    found = media.image_b64(att.model_dump())
+                    _append("user", {"inline_data": {
+                        "mime_type": found[0], "data": found[1]}} if found else {
+                        "text": f"[{att.name}: image attached, but the file is missing]"})
+            if m.content:
+                _append("user", {"text": m.content})
         elif m.content:
             _append("user", {"text": m.content})
     return system, contents
@@ -128,6 +147,16 @@ class GeminiProvider(ModelProvider):
             if model_id:
                 models.append(ModelInfo(id=model_id, name=m.get("displayName")))
         return models
+
+    async def supports_vision(self, model: str) -> Optional[bool]:
+        # Gemini 1.5 and later are all multimodal; the 1.0 "gemini-pro" text
+        # models were not (their image sibling was named ...-vision)
+        lowered = model.lower()
+        if "gemini" not in lowered:
+            return None
+        if "vision" in lowered or any(v in lowered for v in ("1.5", "2.", "3.")):
+            return True
+        return False
 
     async def chat(
         self,

@@ -1,6 +1,7 @@
 import type {
   Conversation,
   McpServer,
+  MediaRef,
   ModelInfo,
   ProviderInstance,
   ProviderType,
@@ -34,6 +35,8 @@ export interface Attachment {
   content: string
   chars: number
   truncated: boolean
+  /** set for image/video uploads instead of extracted text */
+  media?: MediaRef & { url: string }
 }
 
 export function uploadAttachment(file: File): Promise<Attachment> {
@@ -41,6 +44,15 @@ export function uploadAttachment(file: File): Promise<Attachment> {
   form.append('file', file)
   return fetch('/api/attachments', { method: 'POST', body: form }).then((r) =>
     json<Attachment>(r),
+  )
+}
+
+/** Images and videos are stored server-side; the message carries their ids. */
+export function uploadMedia(file: File): Promise<MediaRef & { url: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  return fetch('/api/attachments/media', { method: 'POST', body: form }).then((r) =>
+    json<MediaRef & { url: string }>(r),
   )
 }
 
@@ -111,7 +123,13 @@ export const rewindConversation = (id: string, includeLastUser: boolean) =>
     method: 'POST',
     headers: jsonHeaders,
     body: JSON.stringify({ include_last_user: includeLastUser }),
-  }).then((r) => json<{ ok: boolean; removed_user_content: string | null }>(r))
+  }).then((r) =>
+    json<{
+      ok: boolean
+      removed_user_content: string | null
+      removed_user_attachments: MediaRef[] | null
+    }>(r),
+  )
 
 export const exportConversationUrl = (id: string) => `/api/conversations/${id}/export`
 
@@ -317,6 +335,8 @@ export interface ChatRequest {
   regenerate?: boolean
   /** wait for the active run to finish instead of being refused with a 409 */
   queue?: boolean
+  /** ids of uploaded image/video attachments for this message */
+  attachments?: string[]
   params?: GenParams
 }
 

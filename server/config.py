@@ -21,6 +21,8 @@ DATA_DIR = PROJECT_ROOT / "data"
 PLUGINS_DIR = PROJECT_ROOT / "plugins"
 DB_PATH = DATA_DIR / "syrudas.db"
 DEFAULT_WORKSPACE = DATA_DIR / "workspace"
+# uploaded images/videos attached to chat messages; metadata sidecars + frames
+ATTACHMENTS_DIR = DATA_DIR / "attachments"
 
 HOST = "127.0.0.1"
 PORT = 8040
@@ -48,6 +50,18 @@ CHARS_PER_TOKEN = 3.5
 RESPONSE_RESERVE_TOKENS = 1_024
 TOOL_SCHEMA_RESERVE_TOKENS = 1_500
 
+# --- image / video chat attachments ---
+# A model only ever sees an image as base64 in the prompt, so big uploads are
+# re-encoded down to this edge length before they are stored - the difference
+# between 12MP and this is invisible to a vision model and enormous in tokens.
+MAX_IMAGE_DIM = 1600
+# Frames sampled evenly across a video: enough to follow what happens, few
+# enough that a clip does not eat the whole context window.
+VIDEO_FRAME_COUNT = 8
+# Rough per-image cost for the history budget (OpenAI's high-detail pricing for
+# a ~1MP image is ~1.1k tokens); video frames cost one image each.
+IMAGE_TOKEN_ESTIMATE = 1_200
+
 def ensure_dirs() -> None:
     """Create the folders the app writes to, reporting where it failed.
 
@@ -56,7 +70,7 @@ def ensure_dirs() -> None:
     the thing that failed. Calling it explicitly lets the caller set up logging
     first and say something useful.
     """
-    for d in (DATA_DIR, DEFAULT_WORKSPACE, PLUGINS_DIR):
+    for d in (DATA_DIR, DEFAULT_WORKSPACE, PLUGINS_DIR, ATTACHMENTS_DIR):
         try:
             d.mkdir(parents=True, exist_ok=True)
         except OSError as exc:

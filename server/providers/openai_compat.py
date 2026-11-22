@@ -24,6 +24,9 @@ OLLAMA_PROBE_TIMEOUT = httpx.Timeout(5.0)
 # context does not change under a running server, and this is consulted on
 # every turn.
 _CONTEXT_CACHE: dict[tuple[str, str], int] = {}
+# (base_url, model) -> vision support. Only "asked and found nothing" is
+# re-probed: a False is as stable as a True, and both are worth keeping.
+_VISION_CACHE: dict[tuple[str, str], bool] = {}
 
 
 def _context_from_entry(entry: dict) -> Optional[int]:
@@ -39,10 +42,46 @@ def _context_from_entry(entry: dict) -> Optional[int]:
     return None
 
 
+def _wire_content(m: Message) -> "str | list[dict]":
+    """Plain string, or OpenAI content parts when the message carries media.
+
+    A video goes out as its sampled frames plus a note saying what they are -
+    without the note the model sees eight stills with no reason to connect
+    them. Files that vanished from the store degrade to a note too, rather
+    than failing the whole turn.
+    """
+    if not m.attachments:
+        return m.content
+    from .. import media  # local import: keeps the module out of embed/RAG paths
+
+    parts: list[dict] = []
+    if m.content:
+        parts.append({"type": "text", "text": m.content})
+    for att in m.attachments:
+        if att.kind == "video":
+            frames = media.video_payloads(att.model_dump())
+            if frames:
+                parts.append({"type": "text", "text":
+                              f"[{att.name}: {len(frames)} frames sampled from a video]"})
+                parts.extend({"type": "image_url", "image_url": {"url": u}}
+                             for u in frames)
+            else:
+                parts.append({"type": "text", "text":
+                              f"[{att.name}: video attached, but its frames are missing]"})
+        else:
+            url = media.image_payload(att.model_dump())
+            if url:
+                parts.append({"type": "image_url", "image_url": {"url": url}})
+            else:
+                parts.append({"type": "text", "text":
+                              f"[{att.name}: image attached, but the file is missing]"})
+    return parts
+
+
 def _wire_messages(messages: list[Message]) -> list[dict]:
     out = []
     for m in messages:
-        d: dict = {"role": m.role, "content": m.content}
+        d: dict = {"role": m.role, "content": _wire_content(m)}
         if m.role == "assistant" and m.tool_calls:
             d["tool_calls"] = [
                 {
@@ -147,6 +186,68 @@ class OpenAICompatProvider(ModelProvider):
         for key, value in info.items():
             if key.endswith(".context_length") and isinstance(value, int) and value > 0:
                 return value
+        return None
+
+    async def supports_vision(self, model: str) -> Optional[bool]:
+        """Ask the backend whether this model takes image input.
+
+        Two dialects, same sources as context_tokens: OpenRouter puts an
+        `architecture.modality` ("text+image->text") in its model listing,
+        Ollama reports `capabilities` from /api/show. A backend that says
+        neither gets None - try and see - because a wrong False blocks a model
+        that would have worked.
+        """
+        key = (self.base_url, model)
+        if key in _VISION_CACHE:
+            return _VISION_CACHE[key]
+
+        found: Optional[bool] = None
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+                resp = await client.get(f"{self.base_url}/models",
+                                        headers=self._headers())
+                if resp.status_code == 200:
+                    data = resp.json()
+                    entries = data.get("data", data if isinstance(data, list) else [])
+                    for m in entries:
+                        if m.get("id") != model:
+                            continue
+                        modality = (m.get("architecture") or {}).get("modality") or ""
+                        caps = m.get("capabilities")
+                        if modality:
+                            found = "image" in modality.split("->", 1)[0].split("+")
+                        elif isinstance(caps, list):
+                            found = "vision" in caps
+                        break
+        except (httpx.HTTPError, ValueError):
+            pass
+
+        if found is None:
+            found = await self._ollama_vision(model)
+        if found is not None:
+            _VISION_CACHE[key] = found
+        return found
+
+    async def _ollama_vision(self, model: str) -> Optional[bool]:
+        root = self.base_url[: -len("/v1")] if self.base_url.endswith("/v1") else None
+        if not root:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=OLLAMA_PROBE_TIMEOUT) as client:
+                resp = await client.post(f"{root}/api/show", json={"model": model})
+                if resp.status_code != 200:
+                    return None
+                info = resp.json()
+        except (httpx.HTTPError, ValueError):
+            return None
+        caps = info.get("capabilities")
+        if isinstance(caps, list):
+            return "vision" in caps
+        # older Ollama has no capabilities list; a vision projector in the
+        # model info (llava.clip..., qwen2vl.vision...) is the next best sign
+        model_info = info.get("model_info") or {}
+        if any("vision" in k or "projector" in k or "clip" in k for k in model_info):
+            return True
         return None
 
     async def embed(self, model: str, texts: list[str]) -> list[list[float]]:

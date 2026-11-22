@@ -1366,6 +1366,41 @@ body {
   text-align: left;
 }
 
+/* images and videos inside user bubbles */
+.bubble-media {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.bubble-image {
+  max-width: 280px;
+  max-height: 220px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  display: block;
+  object-fit: cover;
+}
+
+.bubble-video {
+  max-width: 320px;
+  max-height: 220px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #000;
+  display: block;
+}
+
+/* thumbnail inside a pending attachment chip */
+.pending-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
 .composer textarea {
   flex: 1;
   resize: none;

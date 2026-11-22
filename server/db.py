@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL,
     input_tokens INTEGER,
     output_tokens INTEGER,
-    auto_approved INTEGER
+    auto_approved INTEGER,
+    attachments TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
 CREATE TABLE IF NOT EXISTS provider_instances (
@@ -155,10 +156,17 @@ async def _add_auto_approved_column(conn: aiosqlite.Connection) -> None:
         await conn.execute("ALTER TABLE messages ADD COLUMN auto_approved INTEGER")
 
 
+async def _add_attachments_column(conn: aiosqlite.Connection) -> None:
+    cols = {r["name"] for r in await conn.execute_fetchall("PRAGMA table_info(messages)")}
+    if "attachments" not in cols:
+        await conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT")
+
+
 MIGRATIONS = [
     _add_token_columns,        # 0 -> 1: per-message token accounting
     _add_auto_approve_column,  # 1 -> 2: per-conversation auto-approve for agent runs
     _add_auto_approved_column,  # 2 -> 3: tool results remember they ran unreviewed
+    _add_attachments_column,   # 3 -> 4: user messages can carry images/videos
 ]
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -261,7 +269,8 @@ async def add_message(conversation_id: str, role: str, content: str = "",
                       tool_call_id: Optional[str] = None,
                       input_tokens: Optional[int] = None,
                       output_tokens: Optional[int] = None,
-                      auto_approved: Optional[bool] = None) -> dict:
+                      auto_approved: Optional[bool] = None,
+                      attachments: Optional[list[dict]] = None) -> dict:
     db = await get_db()
     msg = {
         "id": new_id(), "conversation_id": conversation_id, "role": role, "content": content,
@@ -269,10 +278,11 @@ async def add_message(conversation_id: str, role: str, content: str = "",
         "tool_call_id": tool_call_id, "created_at": now(),
         "input_tokens": input_tokens, "output_tokens": output_tokens,
         "auto_approved": None if auto_approved is None else int(auto_approved),
+        "attachments": json.dumps(attachments) if attachments else None,
     }
     await db.execute(
-        "INSERT INTO messages (id,conversation_id,role,content,tool_calls,tool_call_id,created_at,input_tokens,output_tokens,auto_approved)"
-        " VALUES (:id,:conversation_id,:role,:content,:tool_calls,:tool_call_id,:created_at,:input_tokens,:output_tokens,:auto_approved)",
+        "INSERT INTO messages (id,conversation_id,role,content,tool_calls,tool_call_id,created_at,input_tokens,output_tokens,auto_approved,attachments)"
+        " VALUES (:id,:conversation_id,:role,:content,:tool_calls,:tool_call_id,:created_at,:input_tokens,:output_tokens,:auto_approved,:attachments)",
         msg,
     )
     await db.execute("UPDATE conversations SET updated_at = ? WHERE id = ?",
@@ -291,6 +301,8 @@ async def list_messages(conversation_id: str) -> list[dict]:
     for r in rows:
         d = dict(r)
         d["tool_calls"] = json.loads(d["tool_calls"]) if d["tool_calls"] else None
+        d["attachments"] = (json.loads(d["attachments"])
+                            if d.get("attachments") else None)
         out.append(d)
     return out
 
@@ -302,7 +314,12 @@ async def get_last_user_message(conversation_id: str) -> Optional[dict]:
         " ORDER BY created_at DESC, rowid DESC LIMIT 1",
         (conversation_id,),
     )
-    return dict(rows[0]) if rows else None
+    if not rows:
+        return None
+    d = dict(rows[0])
+    d["attachments"] = (json.loads(d["attachments"])
+                        if d.get("attachments") else None)
+    return d
 
 
 async def get_messages_after(conversation_id: str, message_id: str) -> list[dict]:
@@ -328,8 +345,8 @@ async def restore_messages(rows: list[dict]) -> None:
     db = await get_db()
     for r in rows:
         await db.execute(
-            "INSERT OR IGNORE INTO messages (id,conversation_id,role,content,tool_calls,tool_call_id,created_at,input_tokens,output_tokens)"
-            " VALUES (:id,:conversation_id,:role,:content,:tool_calls,:tool_call_id,:created_at,:input_tokens,:output_tokens)",
+            "INSERT OR IGNORE INTO messages (id,conversation_id,role,content,tool_calls,tool_call_id,created_at,input_tokens,output_tokens,attachments)"
+            " VALUES (:id,:conversation_id,:role,:content,:tool_calls,:tool_call_id,:created_at,:input_tokens,:output_tokens,:attachments)",
             r,
         )
     await db.commit()
