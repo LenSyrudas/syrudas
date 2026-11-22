@@ -118,6 +118,27 @@ Each of these has an offline suite that fails the branch that breaks it. See
 [Whitepaper §15](docs/WHITEPAPER.md) for the full threat model, and §19 for what is
 still weak — written on purpose and in detail.
 
+## Images and video
+
+Attach media with the paperclip, by dragging files onto the composer, or by pasting a
+screenshot straight in. Images are downscaled to 1600px on upload (a vision model
+cannot tell it apart from the original, and the token cost is a fraction) and shown
+inline in the thread. Videos stay playable in the chat; the model itself receives 8
+frames sampled evenly across the clip. Attachments persist with the conversation and
+work in agent mode too.
+
+Any vision-capable model will do. Local, through Ollama or LM Studio:
+
+- `gemma3` (4b / 12b / 27b — the 4b runs almost anywhere)
+- `llama3.2-vision` (11b / 90b)
+- `qwen2.5vl` (3b / 7b / 32b / 72b)
+- `llava`, `minicpm-v`, `moondream` (small and fast)
+
+Hosted: OpenAI's `gpt-4o` family, every Claude from 3.0 on, Gemini 1.5+, and any
+OpenRouter model whose modality includes image. Syrudas asks the backend whether the
+selected model takes images and tells you plainly when it doesn't — a text-only model
+fails with a clear message naming what to pick instead, never a cryptic 400.
+
 ## Quickstart
 
 Requirements: Windows, Python 3.13 (`py` launcher), Node.js 20+, and a model backend
@@ -129,7 +150,7 @@ Requirements: Windows, Python 3.13 (`py` launcher), Node.js 20+, and a model bac
 .\run_tests.ps1 # offline suites + frontend unit tests/lint/typecheck (what CI runs)
 ```
 
-`run_tests.ps1` runs the 22 offline suites — real code paths against fake providers and
+`run_tests.ps1` runs the 26 offline suites — real code paths against fake providers and
 embedders, no network, no GPU, seconds to finish. Add `-Smoke` to also run the suites
 that need a live model backend. `scripts\eval_agent.py` scores agent *behaviour* against
 a real model (which tools, in what order, how many steps) and is kept out of the default
@@ -233,10 +254,11 @@ they behave identically wherever you invoke them from.
 
 ## Status
 
-Version 1.0.2, and single-maintainer by design. Windows-only in a deeper sense than
+Version 1.2.0, and single-maintainer by design. Windows-only in a deeper sense than
 packaging: the shell tool spawns PowerShell, hardware detection reads WMI, the desktop
-shell targets WebView2. Text-only — a vision model can be selected but never fed an
-image. API keys are stored in plaintext in the local database and masked in every API
+shell targets WebView2. Video support means sampled frames, not motion — a model sees
+8 stills, so fast action between them is invisible to it. API keys are stored in
+plaintext in the local database and masked in every API
 response, so the data folder is as sensitive as the keys in it. The file tools do
 whole-file writes with no patch-style edit and no search, so changing one line of a
 large file means paging through it and writing all of it back. Tool arguments are
